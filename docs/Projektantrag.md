@@ -62,4 +62,4 @@ Hier können Autoren Posts im Markdown-Format hochladen. Evtl. Online-Editor
 
 ### Moodboard
 
-[Moodboard auf realtimecolors.me](https://www.realtimecolors.com/?colors=17090d-fcf6f7-d53960-f08da6-f4577e&fonts=Quicksand-Inria%20Sans)
+[Moodboard auf realtimecolors.me](https://www.realtimecolors.com/?colors=000000-ffffff-2ce22c-5833ff-ff8b33&fonts=Quicksand-Inria%20Sans)
