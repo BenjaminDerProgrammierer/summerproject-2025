@@ -1,3 +1,8 @@
+---
+title: Projektantrag
+lang: de-AT
+---
+
 # Webseite Sommerprojekt 2024/25
 
 Hartmann Benjamin, 1AHITM
