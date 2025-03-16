@@ -3,51 +3,49 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - main  # Set this to your default branch
+      - main
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Install Pandoc
-        run: sudo apt-get update && sudo apt-get install -y pandoc
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pandoc nodejs npm
 
-      - name: Convert Markdown to HTML
-        run: |
-          mkdir -p docs
-          for file in docs/*.md; do
-            mkdir -p "${file%.md}"
-            pandoc -s "$file" --from markdown --to html5 --standalone \
-                --embed-resources --mathjax --css=./docs/style.css \
-                -o "${file%.md}/index.html"
-          done
+      - name: Install NPM Packages
+        run: npm install
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-        
+      - name: Build
+        run: npm run build
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs'
-          
+          path: './dist'
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

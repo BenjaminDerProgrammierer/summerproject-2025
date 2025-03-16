@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home | WEBonTour</title>
+    <link rel="stylesheet" href="/src/style.css">
+</head>
+
+<body>
+    <!-- <nav id="navbar">
+        <a href="/" class="logo">
+            <img src="/assets/icons/MdiAtom.svg" alt="Logo">
+            <span>WEBonTour</span>
+        </a>
+        <div class="right">
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/destinations">View Destinations</a></li>
+                <li><a href="#">Contact</a></li>
+                <li><a href="#">Author Posts</a></li>
+            </ul>
+            <a href="#" id="login" class="link-button primary bordered">Log In</a>
+            <a href="#" id="signup" class="link-button primary">Sign Up</a>
+        </div>
+    </nav> -->
+    <a href="/" id="logo">
+        <img src="/assets/icons/MdiAtom.svg" alt="Logo">
+        <span>WEBonTour</span>
+    </a>
+    <section id="hero">
+        <!-- https://www.magicpattern.design/tools/grid-background-pattern-generator/ -->
+        <div class="magicpattern"></div>
+        <h1>Welcome to WEBonTour</h1>
+        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aliquam sit amet molestie eros. Maecenas justo
+            lectus, vestibulum vitae aliquet sit amet, posuere eget purus. Praesent pharetra tincidunt nisi, vel
+            tristique tortor efficitur nec.</p>
+        <div class="buttons">
+            <a href="/destinations" class="link-button primary">View Destinations Now!</a>
+            <a href="/about" class="link-button secondary bordered">More about us</a>
+        </div>
+        <div id="down-arrow">
+            <img src="assets/icons/MaterialSymbolsArrowDownward.svg" alt="Down">
+        </div>
+    </section>
+    <!-- <section id="features">
+        <div class="feature-card">
+            <span class="material-symbols-outlined">search</span>
+            <h3>Feature Title</h3>
+            <p>Description of the feature. This highlights its benefits.</p>
+            <a href="#" class="link-button primary">Learn More</a>
+        </div>
+        <div class="feature-card">
+            <span class="material-symbols-outlined">home</span>
+            <h3>Another Feature Title</h3>
+            <p>This feature offers additional advantages that users should know about.</p>
+            <a href="#" class="link-button primary">Learn More</a>
+        </div>
+        <div class="feature-card">
+            <span class="material-symbols-outlined">settings</span>
+            <h3>One More Feature Title</h3>
+            <p>Here is another feature that users can take advantage of.</p>
+            <a href="#" class="link-button primary">Learn More</a>
+        </div>
+    </section> -->
+    <section id="recent">
+        <div>
+            <h2>Recent Posts</h2>
+            <div id="recent-posts-insert"></div>
+        </div>
+        <div class="sidebar">
+            <h3 id="popular-destinations-title">Popular Destinations</h3>
+            <ul id="popular-destinations">
+                <li><a href="#">Paris, France</a></li>
+                <li><a href="#">New York City, USA</a></li>
+                <li><a href="#">Tokyo, Japan</a></li>
+                <li><a href="#">London, UK</a></li>
+                <li><a href="#">Rome, Italy</a></li>
+            </ul>
+            <a href="/destinations" class="link-button primary">View All Destinations</a>
+        </div>
+    </section>
+    <footer>
+        <div class="footer-item">
+            <h3>Social Media</h3>
+            <div class="social-media">
+                <a href="#"><img src="assets/icons/fa6-brands/square-facebook.svg" alt="Facebook"></a>
+                <a href="#"><img src="assets/icons/fa6-brands/x-twitter.svg" alt="Twitter / X"></a>
+                <a href="#"><img src="assets/icons/fa6-brands/instagram.svg" alt="Instagram"></a>
+            </div>
+        </div>
+        <div class="footer-item">
+            <h3>Contact Us</h3>
+            <p>For inquiries, email us at <a href="mailto:info@site.com">info@site.com</a></p>
+        </div>
+        <div class="footer-item">
+            <h3>Legal</h3>
+            <ul class="footer-links">
+                <li><a href="/legal?srcMd=%2Fcontent%2Fontact.md">Contact Information</a></li>
+                <li><a href="/legal?srcMd=%2Fcontent%2Fterms.md">Terms of Service</a></li>
+                <li><a href="/legal?srcMd=%2Fcontent%2Fprivacy.md">Privacy Policy</a></li>
+                <li><a href="/about">About Us</a></li>
+            </ul>
+        </div>
+    </footer>
+    <span class="icon-instagram"></span>
+
+    <script type="module">
+        import { createApp } from 'vue';
+        import RecentPosts from './src/components/RecentPosts.vue';
+
+        createApp(RecentPosts).mount('#recent-posts-insert');
+
+        localStorage.removeItem('previousImages');
+    </script>
+</body>
+
+</html>
