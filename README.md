@@ -100,7 +100,6 @@ There are a few ways to run the project.
 
 #### Rather important improvements
 
-- markdown features on post page: callout, emoji preview
 - pinned posts for the admin
 
 ## License
