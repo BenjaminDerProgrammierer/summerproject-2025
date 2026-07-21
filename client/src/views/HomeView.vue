@@ -145,9 +145,9 @@ onMounted(async () => {
         <div class="footer-item">
             <h3>Social Media</h3>
             <div class="social-media">
-                <a href="#"><img :src="`assets/icons/fa6-brands/square-facebook.svg`" alt="Facebook"></a>
-                <a href="#"><img :src="`assets/icons/fa6-brands/x-twitter.svg`" alt="Twitter / X"></a>
-                <a href="#"><img :src="`assets/icons/fa6-brands/instagram.svg`" alt="Instagram"></a>
+                <a><img :src="`assets/icons/fa6-brands/square-facebook.svg`" alt="Facebook"></a>
+                <a><img :src="`assets/icons/fa6-brands/x-twitter.svg`" alt="Twitter / X"></a>
+                <a><img :src="`assets/icons/fa6-brands/instagram.svg`" alt="Instagram"></a>
             </div>
         </div>
         <div class="footer-item">

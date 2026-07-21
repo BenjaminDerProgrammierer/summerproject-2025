@@ -18,6 +18,10 @@
     --body-font-family: 'Inria Sans', sans-serif;
 }
 
+html {
+    font-size: 17px;
+}
+
 /* Default Font */
 body {
     font-family: var(--body-font-family);
