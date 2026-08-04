@@ -15,7 +15,7 @@ import {
     List,
     Quote,
     ChevronDown
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 // Props
 const props = defineProps({

@@ -6,6 +6,12 @@ declare module 'markdown-it-task-lists' {
   export default plugin;
 }
 
+declare module 'markdown-it-footnote' {
+  import type MarkdownIt from 'markdown-it';
+  function plugin(md: MarkdownIt): void;
+  export default plugin;
+}
+
 declare module 'markdown-it-deflist' {
   import type MarkdownIt from 'markdown-it';
   function plugin(md: MarkdownIt): void;

@@ -9,11 +9,11 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "^11.0.9",
+      "version": "11.20.0",
       "onFail": "download"
     }
   },
@@ -28,10 +28,10 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^5.2.3",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
-    "pg": "^8.20.0",
+    "multer": "^2.2.0",
+    "pg": "^8.22.0",
     "swagger-ui-express": "^5.0.1"
   }
 }

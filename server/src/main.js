@@ -8,7 +8,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import swaggerUi from 'swagger-ui-express';
-import yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 // Import route modules
 import authRoutes from './routes/auth.js';
@@ -92,7 +92,7 @@ async function startServer() {
     // Serve OpenAPI documentation with Swagger UI at /api
     try {
       const openapiPath = join(__dirname, '../openapi.yaml');
-      const swaggerDocument = yaml.load(fs.readFileSync(openapiPath, 'utf8'));
+      const swaggerDocument = loadYaml(fs.readFileSync(openapiPath, 'utf8'));
 
       // Serve the raw OpenAPI file
       app.get('/api/openapi.yaml', (req, res) => {
