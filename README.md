@@ -38,8 +38,7 @@ For a production-like local check, run `pnpm build` followed by `pnpm start`.
 
 ## Configuration
 
-- `DATABASE_URL` — complete PostgreSQL connection URL; takes precedence over the individual `DB_*` values
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` — local database connection values
+- `DATABASE_URL` — PostgreSQL connection URL; required
 - `JWT_SECRET` — secret used to sign authentication tokens; required
 - `MASTER_SIGNUP_KEY` — master key used to create initial signup access; required
 - `PORT` — HTTP port, default `3000`
