@@ -9,3 +9,7 @@ node_modules
 
 # Build output
 dist
+
+# Sensitive database migration exports
+/export/
+/src/server/generated/prisma/

@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/server/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Attachment {
+  id               Int       @id @default(autoincrement())
+  postId           Int?      @map("post_id")
+  filename         String    @db.VarChar(255)
+  originalFilename String?   @map("original_filename") @db.VarChar(255)
+  fileSize         Int?      @map("file_size")
+  mimeType         String?   @map("mime_type") @db.VarChar(100)
+  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  post             Post?     @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([postId], map: "idx_attachments_post_id")
+  @@map("attachments")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(100)
+  description String?
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  posts       Post[]
+
+  @@map("categories")
+}
+
+model Comment {
+  id        Int       @id @default(autoincrement())
+  postId    Int?      @map("post_id")
+  authorId  Int?      @map("author_id")
+  content   String
+  parentId  Int?      @map("parent_id")
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  isDeleted Boolean?  @default(false) @map("is_deleted")
+  post      Post?     @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  author    User?     @relation(fields: [authorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  replies   Comment[] @relation("CommentReplies")
+
+  @@index([authorId], map: "idx_comments_author_id")
+  @@index([parentId], map: "idx_comments_parent_id")
+  @@index([postId], map: "idx_comments_post_id")
+  @@map("comments")
+}
+
+model Post {
+  id          Int          @id @default(autoincrement())
+  title       String       @db.VarChar(200)
+  content     String
+  authorId    Int?         @map("author_id")
+  categoryId  Int?         @map("category_id")
+  customDate  DateTime?    @map("custom_date") @db.Timestamp(6)
+  createdAt   DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime?    @default(now()) @map("updated_at") @db.Timestamp(6)
+  author      User?        @relation(fields: [authorId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  attachments Attachment[]
+  comments    Comment[]
+  tags        PostTag[]
+
+  @@index([authorId], map: "idx_posts_author_id")
+  @@index([categoryId], map: "idx_posts_category_id")
+  @@map("posts")
+}
+
+model PostTag {
+  postId Int  @map("post_id")
+  tagId  Int  @map("tag_id")
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([postId, tagId])
+  @@index([tagId], map: "idx_post_tags_tag_id")
+  @@map("post_tags")
+}
+
+model Role {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(50)
+  description String?
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  users       User[]
+
+  @@map("roles")
+}
+
+model SignupKey {
+  id        Int       @id @default(autoincrement())
+  keyValue  String    @unique @map("key_value") @db.VarChar(255)
+  note      String?
+  createdBy Int?      @map("created_by")
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  creator   User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([createdBy], map: "idx_signup_keys_created_by")
+  @@map("signup_keys")
+}
+
+model SiteSetting {
+  id           Int       @id @default(autoincrement())
+  settingKey   String    @unique @map("setting_key") @db.VarChar(100)
+  settingValue String    @map("setting_value")
+  description  String?
+  updatedBy    Int?      @map("updated_by")
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  updater      User?     @relation(fields: [updatedBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@map("site_settings")
+}
+
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("session")
+}
+
+model SystemSetting {
+  key       String    @id @db.VarChar(255)
+  value     String
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@map("system_settings")
+}
+
+model Tag {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique @db.VarChar(50)
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  posts     PostTag[]
+
+  @@map("tags")
+}
+
+model User {
+  id           Int           @id @default(autoincrement())
+  username     String        @unique @db.VarChar(50)
+  password     String        @db.VarChar(100)
+  email        String        @unique @db.VarChar(100)
+  roleId       Int?          @map("role_id")
+  createdAt    DateTime?     @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime?     @default(now()) @map("updated_at") @db.Timestamp(6)
+  signupNote   String?       @map("signup_note")
+  role         Role?         @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  comments     Comment[]
+  posts        Post[]
+  signupKeys   SignupKey[]
+  siteSettings SiteSetting[]
+
+  @@map("users")
+}
