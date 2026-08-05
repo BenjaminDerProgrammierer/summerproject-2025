@@ -28,13 +28,13 @@ Express is the only application process. In development it mounts Vite as middle
 
 - `pnpm dev` — run Express and Vite with automatic reloads
 - `pnpm build` — generate Prisma Client and build the server and client
-- `pnpm start` — run the production build
+- `pnpm start` — build and run the application in production mode
 - `pnpm typecheck` — type-check the server, client, and build configuration
 - `pnpm db:validate` — validate the Prisma schema
 - `pnpm db:generate` — regenerate Prisma Client
 - `pnpm db:migrate` — deploy pending database migrations
 
-For a production-like local check, run `pnpm build` followed by `pnpm start`.
+For a production-like local check, run `pnpm start`.
 
 ## Configuration
 

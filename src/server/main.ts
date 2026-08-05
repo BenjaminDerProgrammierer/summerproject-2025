@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import type { ErrorRequestHandler } from 'express';
 import session from 'express-session';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { resolve } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
@@ -38,6 +38,11 @@ async function startServer(): Promise<Server> {
   const app = express();
   const port = parseInt(process.env.PORT || '3000');
   const production = process.env.NODE_ENV === 'production';
+  const clientIndexPath = resolve(clientDistDir, 'index.html');
+
+  if (production && !existsSync(clientIndexPath)) {
+    throw new Error('Production client build not found. Run `pnpm build` before starting the server.');
+  }
 
   app.set('trust proxy', 1);
   app.use(cors({
@@ -59,7 +64,7 @@ async function startServer(): Promise<Server> {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: production,
+      secure: 'auto',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000,
       sameSite: 'lax',
@@ -113,7 +118,7 @@ async function startServer(): Promise<Server> {
     app.use(express.static(clientDistDir));
     app.use((req, res, next) => {
       if (req.method !== 'GET' || !req.accepts('html')) return next();
-      res.sendFile(resolve(clientDistDir, 'index.html'));
+      res.sendFile(clientIndexPath);
     });
   } else {
     const { createServer: createViteServer } = await import('vite');
