@@ -5,13 +5,34 @@ set -Eeuo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 dump_file="${DEV_DATABASE_DUMP:-${project_dir}/export/database.dump}"
 target_database_url="${TARGET_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5173/webontour}"
+postgres_cli_image="${POSTGRES_CLI_IMAGE:-docker.io/library/postgres:18-alpine}"
 
-for command_name in psql pg_restore pnpm; do
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "Required command not found: ${command_name}" >&2
-    exit 1
-  fi
-done
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "Required command not found: pnpm" >&2
+  exit 1
+fi
+
+if [[ -n "${CONTAINER_RUNTIME:-}" ]]; then
+  container_runtime="${CONTAINER_RUNTIME}"
+elif command -v podman >/dev/null 2>&1; then
+  container_runtime="podman"
+elif command -v docker >/dev/null 2>&1; then
+  container_runtime="docker"
+else
+  echo "Required command not found: podman or docker" >&2
+  exit 1
+fi
+
+if ! command -v "${container_runtime}" >/dev/null 2>&1; then
+  echo "Required command not found: ${container_runtime}" >&2
+  exit 1
+fi
+
+container_run=(
+  "${container_runtime}" run
+  --rm
+  --network=host
+)
 
 if [[ ! -r "${dump_file}" ]]; then
   echo "Database export is not readable: ${dump_file}" >&2
@@ -20,7 +41,7 @@ fi
 
 # Fail before changing anything unless the destination is genuinely empty.
 relation_count="$({
-  psql "${target_database_url}" \
+  "${container_run[@]}" "${postgres_cli_image}" psql "${target_database_url}" \
     --no-psqlrc \
     --set=ON_ERROR_STOP=1 \
     --tuples-only \
@@ -46,13 +67,13 @@ if (( relation_count != 0 )); then
 fi
 
 echo "Restoring the development database export..."
-pg_restore \
+"${container_run[@]}" --interactive "${postgres_cli_image}" pg_restore \
   --dbname="${target_database_url}" \
   --exit-on-error \
   --no-owner \
   --no-privileges \
   --single-transaction \
-  "${dump_file}"
+  < "${dump_file}"
 
 echo "Applying migrations added after the exported schema..."
 (
