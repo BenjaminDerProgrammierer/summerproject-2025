@@ -6,7 +6,7 @@ import ImageGallery from '../components/ImageGallery.vue';
 <template>
     <div class="about">
         <h1 class="title">
-            <Logo inline="true" />
+            <Logo :inline="true" />
             <span>About us</span>
             <div></div>
         </h1>

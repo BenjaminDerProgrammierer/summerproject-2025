@@ -174,33 +174,32 @@ async function logout() {
 
 async function fetchPosts() {
   try {
-    // Request all posts for admin management (high limit for admin view)
-    const response = await fetch(`/api/posts?limit=1000`, {
-      credentials: 'include'
-    });
+    const allPosts: Post[] = [];
+    let page = 1;
+    let hasNextPage = true;
 
-    if (response.ok) {
+    while (hasNextPage) {
+      const response = await fetch(`/api/posts?limit=100&page=${page}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch posts');
+
       const data = await response.json();
-      
-      // Handle new API response format with pagination
-      let allPosts = [];
-      if (data.posts && Array.isArray(data.posts)) {
-        allPosts = data.posts;
-      } else if (Array.isArray(data)) {
-        // Fallback for older API format
-        allPosts = data;
+      if (Array.isArray(data)) {
+        allPosts.push(...data);
+        hasNextPage = false;
+      } else {
+        allPosts.push(...data.posts);
+        hasNextPage = data.pagination.hasNextPage;
+        page++;
       }
-
-      // If user is a writer, filter to only show their own posts
-      // This is a client-side backup to the server-side filtering
-      if (currentUser.value?.role === 'writer') {
-        allPosts = allPosts.filter((post: Post) => post.author_id === currentUser.value?.id);
-      }
-
-      posts.value = allPosts;
-    } else {
-      throw new Error('Failed to fetch posts');
     }
+
+    // If user is a writer, filter to only show their own posts.
+    // This is a client-side backup to the server-side filtering.
+    posts.value = currentUser.value?.role === 'writer'
+      ? allPosts.filter((post: Post) => post.author_id === currentUser.value?.id)
+      : allPosts;
   } catch (err) {
     console.error('Error fetching posts:', err);
   }
@@ -529,7 +528,7 @@ function toggleNewCategoryInput() {
     <div v-else-if="isAuthenticated" class="admin-dashboard">
       <div class="admin-header">
         <h2 class="admin-title">
-          <Logo inline="true" />Welcome to the Admin Dashboard
+          <Logo :inline="true" />Welcome to the Admin Dashboard
         </h2>
         <div class="user-info">
           <span class="username">{{ currentUser?.username }}</span>
@@ -811,8 +810,10 @@ function toggleNewCategoryInput() {
 
 .admin-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
 }
 
@@ -861,8 +862,33 @@ function toggleNewCategoryInput() {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 20px;
+}
+
+@media (max-width: 600px) {
+  .admin-container {
+    padding: 12px;
+  }
+
+  .admin-header,
+  .user-info {
+    align-items: flex-start;
+  }
+
+  .admin-title {
+    width: 100%;
+  }
+
+  .tab-button {
+    flex: 1 1 calc(50% - 5px);
+    padding-inline: 10px;
+  }
+
+  .tab-content {
+    padding: 12px;
+  }
 }
 
 .tab-button {

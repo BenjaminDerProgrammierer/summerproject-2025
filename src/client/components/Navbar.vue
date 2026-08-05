@@ -5,7 +5,7 @@ import Logo from './Logo.vue';
 
 <template>
     <nav id="navbar">
-        <Logo inline="true"/>
+        <Logo :inline="true"/>
         <div class="right">
             <ul>
                 <li><a href="/">Home</a></li>

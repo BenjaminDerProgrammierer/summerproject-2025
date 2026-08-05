@@ -147,8 +147,8 @@ async function fetchPosts(isLoadingMore = false) {
         posts.value = data.posts;
       }
       
-      totalPosts.value = data.total;
-      hasMorePosts.value = posts.value.length < data.total;
+      totalPosts.value = data.pagination.totalPosts;
+      hasMorePosts.value = data.pagination.hasNextPage;
     } else if (response.status === 401) {
       // Handle case where site is private and authentication is required
       const errorData = await response.json();
@@ -175,59 +175,43 @@ async function fetchPosts(isLoadingMore = false) {
 
 async function fetchTagsAndCategories() {
   try {
-    // Fetch all posts to extract tags and categories
-    const response = await fetch('/api/posts?limit=1000'); // Get all posts for filtering
-    if (response.ok) {
-      const data = await response.json();
-      const allPosts = data.posts || data; // Handle both new and old API format
-      
-      // Extract unique tags
-      const tagSet = new Set<Tag>();
-      allPosts.forEach((post: Post) => {
-        post.tags?.forEach((tag: Tag) => {
-          if (tag !== null) tagSet.add(tag);
-        });
-      });
-      tags.value = Array.from(tagSet).filter((tag, index, self) =>
-        index === self.findIndex((t: Tag) => t.name === tag.name)
-      ).sort((a, b) => a.name.localeCompare(b.name));
-
-      // Extract unique categories
-      const categorySet = new Set<string>();
-      allPosts.forEach((post: Post) => {
-        if (post.category_name && post.category_name !== null) {
-          categorySet.add(post.category_name);
-        }
-      });
-      categories.value = Array.from(categorySet).sort();
-    } else if (response.status === 401) {
-      // Site is private, skip tags/categories loading
-      console.log('Site is private, skipping tags/categories loading');
+    const [tagsResponse, categoriesResponse] = await Promise.all([
+      fetch('/api/posts/tags'),
+      fetch('/api/posts/categories'),
+    ]);
+    if (!tagsResponse.ok || !categoriesResponse.ok) {
+      throw new Error('Failed to fetch tags and categories');
     }
+
+    const [availableTags, availableCategories] = await Promise.all([
+      tagsResponse.json() as Promise<Tag[]>,
+      categoriesResponse.json() as Promise<Array<{ name: string }>>,
+    ]);
+    tags.value = availableTags.sort((a, b) => a.name.localeCompare(b.name));
+    categories.value = availableCategories.map(category => category.name).sort();
   } catch (err) {
     console.error('Error fetching tags and categories:', err);
   }
 }
 
-function setupInfiniteScroll() {
-  const handleScroll = () => {
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    const windowHeight = window.innerHeight;
-    const documentHeight = document.documentElement.scrollHeight;
-    
-    // Load more when user is 100px from bottom
-    if (scrollTop + windowHeight >= documentHeight - 100) {
-      loadMore();
-    }
-  };
+function handleScroll() {
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+  const windowHeight = window.innerHeight;
+  const documentHeight = document.documentElement.scrollHeight;
 
-  window.addEventListener('scroll', handleScroll);
-  
-  // Cleanup on unmount
-  onUnmounted(() => {
-    window.removeEventListener('scroll', handleScroll);
-  });
+  // Load more when user is 100px from bottom
+  if (scrollTop + windowHeight >= documentHeight - 100) {
+    loadMore();
+  }
 }
+
+function setupInfiniteScroll() {
+  window.addEventListener('scroll', handleScroll);
+}
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll);
+});
 
 function loadMore() {
   if (!loadingMore.value && hasMorePosts.value && !loading.value) {
