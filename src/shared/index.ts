@@ -64,7 +64,7 @@ export const postsQuerySchema = z.object({
   author: z.string().trim().min(1).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  sortBy: z.enum(['date', 'title', 'author']).default('date'),
+  sortBy: z.literal('date').default('date'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

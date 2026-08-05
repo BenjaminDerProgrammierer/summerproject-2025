@@ -546,7 +546,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [date, title, author]
+            enum: [date]
             default: date
           description: Sort by field
         - name: sortOrder

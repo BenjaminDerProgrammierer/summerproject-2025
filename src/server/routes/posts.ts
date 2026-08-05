@@ -5,7 +5,7 @@ import multer from 'multer';
 import { categorySchema, idParamsSchema, postBodySchema, postsQuerySchema } from '../../shared/index.js';
 import { attachmentsDir } from '../config/paths.js';
 import { prisma } from '../db/prisma.js';
-import type { Prisma } from '../generated/prisma/client.js';
+import { Prisma } from '../generated/prisma/client.js';
 import { auth, getUserId, getUserRole, isWriterOrModerator } from '../middleware/auth.js';
 import { checkSiteAccess } from '../middleware/siteAccess.js';
 import { getErrorCode } from '../utils/errors.js';
@@ -56,6 +56,47 @@ function serializeCategory(category: { id: number; name: string; description: st
 function unlinkStoredFile(filename: string): void {
   const filePath = path.join(attachmentsDir, filename);
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+}
+
+async function findDateSortedPostIds(
+  input: Pick<ReturnType<typeof postsQuerySchema.parse>, 'author' | 'category' | 'tag' | 'page' | 'limit' | 'sortOrder'>,
+): Promise<number[]> {
+  const filters: Prisma.Sql[] = [];
+  if (input.category) {
+    filters.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "categories" category
+      WHERE category."id" = post."category_id" AND category."name" = ${input.category}
+    )`);
+  }
+  if (input.tag) {
+    filters.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "post_tags" post_tag
+      JOIN "tags" tag ON tag."id" = post_tag."tag_id"
+      WHERE post_tag."post_id" = post."id" AND tag."name" = ${input.tag}
+    )`);
+  }
+  if (input.author) {
+    filters.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "users" author
+      WHERE author."id" = post."author_id" AND author."username" = ${input.author}
+    )`);
+  }
+
+  const where = filters.length > 0
+    ? Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`
+    : Prisma.empty;
+  const offset = (input.page - 1) * input.limit;
+  const order = input.sortOrder === 'asc'
+    ? Prisma.sql`ASC NULLS LAST, post."id" ASC`
+    : Prisma.sql`DESC NULLS LAST, post."id" DESC`;
+  const rows = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+    SELECT post."id"
+    FROM "posts" post
+    ${where}
+    ORDER BY COALESCE(post."custom_date", post."created_at") ${order}
+    LIMIT ${input.limit} OFFSET ${offset}
+  `);
+  return rows.map(row => row.id);
 }
 
 /**
@@ -184,22 +225,15 @@ router.get('/', checkSiteAccess, async (req, res) => {
       ...(input.tag ? { tags: { some: { tag: { name: input.tag } } } } : {}),
       ...(input.author ? { author: { username: input.author } } : {}),
     };
-    const direction = input.sortOrder;
-    let orderBy: Prisma.PostOrderByWithRelationInput[];
-    if (input.sortBy === 'title') orderBy = [{ title: direction }];
-    else if (input.sortBy === 'author') orderBy = [{ author: { username: direction } }];
-    else orderBy = [{ customDate: { sort: direction, nulls: 'last' } }, { createdAt: direction }];
-
-    const [posts, totalPosts] = await Promise.all([
-      prisma.post.findMany({
-        where,
-        include: postInclude,
-        orderBy,
-        take: input.limit,
-        skip: (input.page - 1) * input.limit,
-      }),
+    const [dateSortedIds, totalPosts] = await Promise.all([
+      findDateSortedPostIds(input),
       prisma.post.count({ where }),
     ]);
+    const posts = await prisma.post.findMany({ where: { id: { in: dateSortedIds } }, include: postInclude })
+      .then(found => {
+        const positions = new Map(dateSortedIds.map((id, index) => [id, index]));
+        return found.sort((a, b) => positions.get(a.id)! - positions.get(b.id)!);
+      });
     const totalPages = Math.ceil(totalPosts / input.limit);
     return res.json({
       posts: posts.map(serializePost),
@@ -211,7 +245,7 @@ router.get('/', checkSiteAccess, async (req, res) => {
         hasPrevPage: input.page > 1,
         limit: input.limit,
       },
-      sorting: { sortBy: input.sortBy, sortOrder: input.sortOrder },
+      sorting: { sortBy: 'date', sortOrder: input.sortOrder },
     });
   } catch (error) {
     console.error('Error fetching posts:', error);

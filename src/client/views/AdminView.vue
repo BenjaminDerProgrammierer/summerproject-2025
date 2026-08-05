@@ -684,7 +684,7 @@ function toggleNewCategoryInput() {
                 class="post-card">
                 <h4 class="post-title">{{ post.title }}</h4>
                 <div class="post-meta">
-                  <p class="post-date">{{ new Date(post.created_at).toLocaleDateString('de-AT', {
+                  <p class="post-date">{{ new Date(post.custom_date || post.created_at).toLocaleDateString('de-AT', {
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'
@@ -714,7 +714,7 @@ function toggleNewCategoryInput() {
                 class="post-card">
                 <h4 class="post-title">{{ post.title }}</h4>
                 <div class="post-meta">
-                  <p class="post-date">{{ new Date(post.created_at).toLocaleDateString('de-AT', {
+                  <p class="post-date">{{ new Date(post.custom_date || post.created_at).toLocaleDateString('de-AT', {
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'

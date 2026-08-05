@@ -24,6 +24,7 @@ interface Post {
   content: string;
   excerpt?: string;
   author: string;
+  custom_date?: string;
   created_at: string;
   updated_at: string;
   published: boolean;
@@ -48,7 +49,7 @@ const router = useRouter();
 const currentPage = ref<number>(1);
 const totalPosts = ref<number>(0);
 const hasMorePosts = ref<boolean>(true);
-const sortBy = ref<'date' | 'title' | 'author'>('date');
+const sortBy = ref<'date'>('date');
 const sortOrder = ref<'asc' | 'desc'>('desc');
 const postsPerPage = 20;
 
@@ -220,7 +221,7 @@ function loadMore() {
   }
 }
 
-function changeSortOrder(newSortBy: 'date' | 'title' | 'author', newSortOrder: 'asc' | 'desc') {
+function changeSortOrder(newSortBy: 'date', newSortOrder: 'asc' | 'desc') {
   sortBy.value = newSortBy;
   sortOrder.value = newSortOrder;
   currentPage.value = 1;
@@ -359,7 +360,7 @@ function truncateContent(content: string, maxLength = 150): string {
 
             <div class="post-meta">
               <span class="author">By {{ post.author }}</span>
-              <span class="date">{{ formatDate(post.created_at) }}</span>
+              <span class="date">{{ formatDate(post.custom_date || post.created_at) }}</span>
             </div>
 
             <div class="post-categorization">
