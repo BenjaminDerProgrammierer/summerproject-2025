@@ -7,11 +7,6 @@ dump_file="${DEV_DATABASE_DUMP:-${project_dir}/export/database.dump}"
 target_database_url="${TARGET_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5173/webontour}"
 postgres_cli_image="${POSTGRES_CLI_IMAGE:-docker.io/library/postgres:18-alpine}"
 
-if ! command -v pnpm >/dev/null 2>&1; then
-  echo "Required command not found: pnpm" >&2
-  exit 1
-fi
-
 if [[ -n "${CONTAINER_RUNTIME:-}" ]]; then
   container_runtime="${CONTAINER_RUNTIME}"
 elif command -v podman >/dev/null 2>&1; then
@@ -33,11 +28,26 @@ container_run=(
   --rm
   --network=host
 )
+migration_image="localhost/webontour-import-migrate:$$"
+
+cleanup() {
+  "${container_runtime}" image rm "${migration_image}" >/dev/null 2>&1 || true
+}
 
 if [[ ! -r "${dump_file}" ]]; then
   echo "Database export is not readable: ${dump_file}" >&2
   exit 1
 fi
+
+# Build the migration tooling before changing the destination database. The
+# temporary image is removed on exit, while the container engine may retain its
+# reusable build cache.
+echo "Building temporary migration image..."
+"${container_runtime}" build \
+  --target=migrate \
+  --tag="${migration_image}" \
+  "${project_dir}"
+trap cleanup EXIT
 
 # Fail before changing anything unless the destination is genuinely empty.
 relation_count="$({
@@ -76,10 +86,13 @@ echo "Restoring the development database export..."
   < "${dump_file}"
 
 echo "Applying migrations added after the exported schema..."
-(
-  cd "${project_dir}"
-  DATABASE_URL="${target_database_url}" pnpm exec prisma migrate resolve --applied 0_init
-  DATABASE_URL="${target_database_url}" pnpm exec prisma migrate deploy
-)
+"${container_run[@]}" \
+  --env "DATABASE_URL=${target_database_url}" \
+  "${migration_image}" \
+  pnpm exec prisma migrate resolve --applied 0_init
+"${container_run[@]}" \
+  --env "DATABASE_URL=${target_database_url}" \
+  "${migration_image}" \
+  pnpm exec prisma migrate deploy
 
 echo "Development database import completed."
