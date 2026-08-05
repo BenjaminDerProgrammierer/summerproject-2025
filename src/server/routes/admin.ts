@@ -7,7 +7,7 @@ import { createPostgresJSExecutor } from '@prisma/studio-core/data/postgresjs';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import postgres from 'postgres';
-import { getDatabaseUrl } from '../config/env.js';
+import { studioRequestSchema } from '../../shared/index.js';
 import { auth, getUserId, isAdmin } from '../middleware/auth.js';
 import { getErrorMessage } from '../utils/errors.js';
 
@@ -15,8 +15,6 @@ const router = express.Router();
 const CSRF_TTL_MS = 15 * 60 * 1000;
 const RATE_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT = 180;
-const MAX_SQL_LENGTH = 256 * 1024;
-const MAX_TRANSACTION_QUERIES = 50;
 
 interface RateWindow {
   count: number;
@@ -95,33 +93,9 @@ function rateLimit(req: Request, res: Response, next: NextFunction): void | Resp
   next();
 }
 
-function hasValidSql(query: unknown): boolean {
-  if (typeof query !== 'object' || query === null || !('sql' in query)) return false;
-  const sql = (query as { sql?: unknown }).sql;
-  return typeof sql === 'string' && sql.length > 0 && sql.length <= MAX_SQL_LENGTH;
-}
-
-function isStudioRequest(value: unknown): value is StudioBFFRequest {
-  if (typeof value !== 'object' || value === null || !('procedure' in value)) return false;
-  const body = value as Record<string, unknown>;
-
-  switch (body.procedure) {
-    case 'query':
-      return hasValidSql(body.query);
-    case 'sequence':
-      return Array.isArray(body.sequence) && body.sequence.length === 2 && body.sequence.every(hasValidSql);
-    case 'transaction':
-      return Array.isArray(body.queries) && body.queries.length <= MAX_TRANSACTION_QUERIES && body.queries.every(hasValidSql);
-    case 'sql-lint':
-      return typeof body.sql === 'string' && body.sql.length <= MAX_SQL_LENGTH;
-    default:
-      return false;
-  }
-}
-
 function getExecutor(): ReturnType<typeof createPostgresJSExecutor> {
   if (executor) return executor;
-  executor = createPostgresJSExecutor(postgres(getDatabaseUrl(), { max: 5, idle_timeout: 20 }));
+  executor = createPostgresJSExecutor(postgres(process.env.DATABASE_URL!, { max: 5, idle_timeout: 20 }));
   return executor;
 }
 
@@ -139,6 +113,11 @@ function audit(req: Request, requestId: string, procedure: string, outcome: 'suc
   }));
 }
 
+/**
+ * @route GET /api/admin/studio/session
+ * @desc Issue a short-lived CSRF token for the embedded Prisma Studio.
+ * @access Admin (feature-flagged)
+ */
 router.get('/studio/session', studioEnabled, auth, isAdmin, (req, res) => {
   const token = randomBytes(32).toString('base64url');
   req.session.studioCsrfToken = token;
@@ -147,6 +126,11 @@ router.get('/studio/session', studioEnabled, auth, isAdmin, (req, res) => {
   res.json({ csrfToken: token, expiresAt: req.session.studioCsrfExpiresAt });
 });
 
+/**
+ * @route POST /api/admin/studio/query
+ * @desc Execute a validated Prisma Studio BFF request with audit metadata.
+ * @access Admin (feature-flagged, same-origin, CSRF-protected, rate-limited)
+ */
 router.post(
   '/studio/query',
   studioEnabled,
@@ -161,12 +145,13 @@ router.post(
     res.set('Cache-Control', 'no-store');
     res.set('X-Request-Id', requestId);
 
-    if (!isStudioRequest(req.body)) {
+    const parsed = studioRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
       audit(req, requestId, 'invalid', 'error', startedAt);
       return res.status(400).json({ message: 'Invalid Studio request' });
     }
 
-    const payload = req.body;
+    const payload = parsed.data as StudioBFFRequest;
     const database = getExecutor();
 
     try {

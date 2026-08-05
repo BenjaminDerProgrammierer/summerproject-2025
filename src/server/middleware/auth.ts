@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import type { NextFunction, Request, Response, RequestHandler } from 'express';
-import { query } from '../db/db.js';
+import { prisma } from '../db/prisma.js';
 import type { AuthTokenPayload, UserRole } from '../types/security.js';
 import { USER_ROLES } from '../types/security.js';
 import { getErrorMessage } from '../utils/errors.js';
@@ -22,9 +22,7 @@ export function auth(req: Request, res: Response, next: NextFunction): void | Re
 
   try {
     const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new Error('JWT_SECRET is not configured');
-    }
+    if (!secret) throw new Error('JWT_SECRET is not configured');
     const decoded = jwt.verify(token, secret);
     if (typeof decoded === 'string' || typeof decoded.id !== 'number' ||
         typeof decoded.username !== 'string' || !USER_ROLES.includes(decoded.role as UserRole)) {
@@ -75,16 +73,15 @@ export function checkRole(roles: readonly UserRole[]): RequestHandler {
       
       // If not available, query the database
       if (!userRole) {
-        const userResult = await query(
-          'SELECT r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
-          [userId]
-        );
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { role: { select: { name: true } } },
+        });
 
-        if (userResult.rows.length === 0) {
+        if (!user?.role) {
           return res.status(404).json({ message: 'User not found' });
         }
-
-        userRole = userResult.rows[0]!.role_name as UserRole;
+        userRole = user.role.name as UserRole;
       }
 
       // Check if user's role is in the allowed roles

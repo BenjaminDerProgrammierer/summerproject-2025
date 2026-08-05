@@ -35,7 +35,7 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/webontour pnpm prisma
 ## Strict server TypeScript and Prisma conversion
 
 - Convert every server file to strict TypeScript before moving directories or changing persistence behavior.
-- Type environment configuration, sessions, JWT payloads, authenticated requests, uploads, errors, DTOs, and database boundaries.
+- Type sessions, JWT payloads, authenticated requests, uploads, errors, DTOs, and database boundaries.
 - Validate untrusted route input with shared Zod schemas.
 - Add Prisma 7 with `@prisma/adapter-pg` and `DATABASE_URL`.
 - Replace startup schema creation and direct SQL access with migrations, seeds, Prisma operations, and typed transactions.
@@ -53,6 +53,5 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/webontour pnpm prisma
 
 - Require strict client/server typechecks, Prisma validation/generation, frozen install, audit, and Vite build.
 - Compare source and target database counts, keys, relations, sequences, and representative data.
-- Regression-test authentication, authorization, posts, comments, settings, uploads, documents, Swagger, health, SPA routing, and Studio security.
 - Keep the export local and out of commits and logs.
 - Production runtime, live migration execution, deployment, rollback, and monitoring remain out of scope.

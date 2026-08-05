@@ -1,467 +1,281 @@
-import express from 'express';
 import bcrypt from 'bcrypt';
+import express from 'express';
 import jwt from 'jsonwebtoken';
-import { query, getClient } from '../db/db.js';
-import { auth, isAdmin, getUserId } from '../middleware/auth.js';
+import { credentialsSchema, idParamsSchema, signupSchema, updatePasswordSchema, updateUserSchema } from '../../shared/index.js';
+import { prisma } from '../db/prisma.js';
+import { auth, getUserId, isAdmin } from '../middleware/auth.js';
+import { USER_ROLES, type UserRole } from '../types/security.js';
 import { getErrorCode, getErrorMessage } from '../utils/errors.js';
+import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
 
+function isUserRole(value: string): value is UserRole {
+  return USER_ROLES.includes(value as UserRole);
+}
+
 /**
- * @route   POST /api/auth/signup
- * @desc    Register a new user (protected by signup key)
- * @access  Protected by signup key or master key
+ * @route POST /api/auth/signup
+ * @desc Register a user using the configured registration policy.
+ * @access Public (signup key or master key may be required)
  */
 router.post('/signup', async (req, res) => {
-  const client = await getClient();
-  
+  const input = parseInput(signupSchema, req.body, res);
+  if (!input) return;
+
   try {
-    await client.query('BEGIN');
-    
-    const { username, password, email, signupKey, masterKey } = req.body;
-    
-    // Check site settings first
-    const siteSettings = await client.query(
-      'SELECT setting_value FROM site_settings WHERE setting_key = $1',
-      ['registration_mode']
-    );
-    
-    const registrationMode = siteSettings.rows[0]!?.setting_value || 'invite_only';
-    
-    if (registrationMode === 'closed') {
-      return res.status(403).json({ message: 'Registration is currently closed' });
-    }
-    
-    let signupKeyRecord = null;
-    
-    // For invite_only mode, validate signup key or master key
-    if (registrationMode === 'invite_only') {
-      if (masterKey && masterKey === process.env.MASTER_SIGNUP_KEY) {
-        // Master key is valid, allow signup
-      } else if (signupKey) {
-        // Validate signup key
-        const keyResult = await client.query(
-          'SELECT id, note FROM signup_keys WHERE key_value = $1',
-          [signupKey]
-        );
-        
-        if (keyResult.rows.length === 0) {
-          return res.status(401).json({ message: 'Invalid signup key' });
-        }
-        
-        signupKeyRecord = keyResult.rows[0]!;
-      } else {
-        return res.status(401).json({ message: 'Signup key or master key required' });
+    const hashedPassword = await bcrypt.hash(input.password, 10);
+    const outcome = await prisma.$transaction(async transaction => {
+      const registration = await transaction.siteSetting.findUnique({
+        where: { settingKey: 'registration_mode' },
+        select: { settingValue: true },
+      });
+      const mode = registration?.settingValue ?? 'invite_only';
+      if (mode === 'closed') return { error: 'closed' as const };
+
+      let signupKey: { id: number; note: string | null } | null = null;
+      if (mode === 'invite_only' && input.masterKey !== process.env.MASTER_SIGNUP_KEY) {
+        if (!input.signupKey) return { error: 'key-required' as const };
+        signupKey = await transaction.signupKey.findUnique({
+          where: { keyValue: input.signupKey },
+          select: { id: true, note: true },
+        });
+        if (!signupKey) return { error: 'invalid-key' as const };
       }
-    }
 
-    // Validate input
-    if (!username || !password || !email) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-    
-    if (password.length < 8) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
-    }
+      const duplicate = await transaction.user.findFirst({
+        where: { OR: [{ username: input.username }, { email: input.email }] },
+        select: { id: true },
+      });
+      if (duplicate) return { error: 'duplicate' as const };
 
-    // Check if username or email already exists
-    const existingUser = await client.query(
-      'SELECT * FROM users WHERE username = $1 OR email = $2',
-      [username, email]
-    );
+      const role = await transaction.role.findUnique({ where: { name: 'user' }, select: { id: true, name: true } });
+      if (!role) return { error: 'missing-role' as const };
 
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({ message: 'Username or email already exists' });
-    }
+      const user = await transaction.user.create({
+        data: {
+          username: input.username,
+          password: hashedPassword,
+          email: input.email,
+          roleId: role.id,
+          signupNote: signupKey?.note ?? null,
+        },
+        select: { id: true, username: true, email: true },
+      });
+      if (signupKey) await transaction.signupKey.delete({ where: { id: signupKey.id } });
+      return { user, role: role.name };
+    });
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-    
-    // Get user role ID (default to 'user' role)
-    const roleResult = await client.query('SELECT id FROM roles WHERE name = $1', ['user']);
-    if (roleResult.rows.length === 0) {
+    if ('error' in outcome) {
+      if (outcome.error === 'closed') return res.status(403).json({ message: 'Registration is currently closed' });
+      if (outcome.error === 'key-required') return res.status(401).json({ message: 'Signup key or master key required' });
+      if (outcome.error === 'invalid-key') return res.status(401).json({ message: 'Invalid signup key' });
+      if (outcome.error === 'duplicate') return res.status(400).json({ message: 'Username or email already exists' });
       return res.status(500).json({ message: 'User role not found' });
     }
-    const userRoleId = roleResult.rows[0]!.id;
-    
-    // Insert new user
-    const result = await client.query(
-      'INSERT INTO users (username, password, email, role_id, signup_note) VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email, role_id',
-      [username, hashedPassword, email, userRoleId, signupKeyRecord?.note || null]
-    );
-    
-    // Delete signup key if one was provided (one-time use)
-    if (signupKeyRecord) {
-      await client.query(
-        'DELETE FROM signup_keys WHERE id = $1',
-        [signupKeyRecord.id]
-      );
-    }
-    
-    await client.query('COMMIT');
-    
-    // Verify role name for the response
-    const userWithRole = await query(
-      'SELECT u.id, u.username, u.email, r.name as role FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
-      [result.rows[0]!.id]
-    );
-    
-    // Create session
-    req.session.userId = result.rows[0]!.id;
-    req.session.role = 'user';
-    
-    // Create JWT token
-    const payload = {
-      id: result.rows[0]!.id,
-      username: result.rows[0]!.username,
-      role: 'user'
-    };
 
+    req.session.userId = outcome.user.id;
+    req.session.role = 'user';
     const token = jwt.sign(
-      payload,
+      { id: outcome.user.id, username: outcome.user.username, role: 'user' },
       process.env.JWT_SECRET!,
-      { expiresIn: '1d' }
+      { expiresIn: '1d' },
     );
-    
-    res.status(201).json({
+    return res.status(201).json({
       token,
       message: 'User registered successfully',
-      user: {
-        id: userWithRole.rows[0]!.id,
-        username: userWithRole.rows[0]!.username,
-        email: userWithRole.rows[0]!.email,
-        role: userWithRole.rows[0]!.role
-      }
+      user: { ...outcome.user, role: outcome.role },
     });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error registering user:', err);
-    
-    if (getErrorCode(err) === '23505') {
+  } catch (error) {
+    console.error('Error registering user:', error);
+    if (getErrorCode(error) === 'P2002') {
       return res.status(400).json({ message: 'Username or email already exists' });
     }
-    
-    res.status(500).json({ message: 'Server error' });
-  } finally {
-    client.release();
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   POST /api/auth/login
- * @desc    Authenticate user & get token
- * @access  Public
+ * @route POST /api/auth/login
+ * @desc Authenticate a user and create a session and JWT.
+ * @access Public
  */
 router.post('/login', async (req, res) => {
+  const input = parseInput(credentialsSchema, req.body, res);
+  if (!input) return;
   try {
-    const { username, password } = req.body;
-
-    // Validate input
-    if (!username || !password) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-
-    // Check if user exists
-    const userResult = await query(
-      `SELECT u.*, r.name as role_name 
-       FROM users u
-       JOIN roles r ON u.role_id = r.id
-       WHERE u.username = $1`,
-      [username]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-
-    const user = userResult.rows[0]!;
-
-    // Validate password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-
-    // Create session
-    req.session.userId = user.id;
-    req.session.role = user.role_name;
-
-    // Create JWT token
-    const payload = {
-      id: user.id,
-      username: user.username,
-      role: user.role_name
-    };
-
-    const token = jwt.sign(
-      payload,
-      process.env.JWT_SECRET!,
-      { expiresIn: '1d' }
-    );
-    
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role_name
-      }
+    const user = await prisma.user.findUnique({
+      where: { username: input.username },
+      include: { role: { select: { name: true } } },
     });
-  } catch (err) {
-    console.error('Login error:', getErrorMessage(err));
-    res.status(500).json({ message: 'Server error' });
+    if (!user?.role || !await bcrypt.compare(input.password, user.password) || !isUserRole(user.role.name)) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    req.session.userId = user.id;
+    req.session.role = user.role.name;
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role.name },
+      process.env.JWT_SECRET!,
+      { expiresIn: '1d' },
+    );
+    return res.json({
+      token,
+      user: { id: user.id, username: user.username, email: user.email, role: user.role.name },
+    });
+  } catch (error) {
+    console.error('Login error:', getErrorMessage(error));
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   GET /api/auth/me
- * @desc    Get current user's profile
- * @access  Private
+ * @route GET /api/auth/me
+ * @desc Return the authenticated user's profile.
+ * @access Private
  */
 router.get('/me', auth, async (req, res) => {
   try {
     const userId = getUserId(req);
-    
-    const userResult = await query(
-      `SELECT u.id, u.username, u.email, r.name as role
-       FROM users u
-       JOIN roles r ON u.role_id = r.id
-       WHERE u.id = $1`,
-      [userId]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json(userResult.rows[0]!);
-  } catch (err) {
-    console.error('Error getting user profile:', getErrorMessage(err));
-    res.status(500).json({ message: 'Server error' });
+    if (!userId) return res.status(401).json({ message: 'Authentication required' });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, email: true, role: { select: { name: true } } },
+    });
+    if (!user?.role) return res.status(404).json({ message: 'User not found' });
+    return res.json({ id: user.id, username: user.username, email: user.email, role: user.role.name });
+  } catch (error) {
+    console.error('Error getting user profile:', getErrorMessage(error));
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   POST /api/auth/logout
- * @desc    Logout user and clear session
- * @access  Private
+ * @route POST /api/auth/logout
+ * @desc Destroy the authenticated user's session.
+ * @access Private
  */
 router.post('/logout', auth, (req, res) => {
-  req.session.destroy(err => {
-    if (err) {
-      return res.status(500).json({ message: 'Could not log out' });
-    }
+  req.session.destroy(error => {
+    if (error) return res.status(500).json({ message: 'Could not log out' });
     res.clearCookie('connect.sid');
-    res.json({ message: 'Logged out successfully' });
+    return res.json({ message: 'Logged out successfully' });
   });
 });
 
 /**
- * @route   GET /api/auth/users
- * @desc    Get all users (admin only)
- * @access  Admin
+ * @route GET /api/auth/users
+ * @desc List users with their roles.
+ * @access Admin
  */
-router.get('/users', auth, isAdmin, async (req, res) => {
+router.get('/users', auth, isAdmin, async (_req, res) => {
   try {
-    const usersResult = await query(
-      `SELECT u.id, u.username, u.email, u.created_at, r.name as role 
-       FROM users u
-       JOIN roles r ON u.role_id = r.id
-       ORDER BY u.created_at DESC`
-    );
-    
-    res.json(usersResult.rows);
-  } catch (err) {
-    console.error('Error fetching users:', err);
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, username: true, email: true, createdAt: true, role: { select: { name: true } } },
+    });
+    res.json(users.filter(user => user.role).map(user => ({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      created_at: user.createdAt,
+      role: user.role!.name,
+    })));
+  } catch (error) {
+    console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   PUT /api/auth/users/:id
- * @desc    Update user details (admin only)
- * @access  Admin
+ * @route PUT /api/auth/users/:id
+ * @desc Update a user's identity or role.
+ * @access Admin
  */
 router.put('/users/:id', auth, isAdmin, async (req, res) => {
-  const client = await getClient();
-  
+  const params = parseInput(idParamsSchema, req.params, res);
+  const input = parseInput(updateUserSchema, req.body, res);
+  if (!params || !input) return;
   try {
-    await client.query('BEGIN');
-    
-    const { id } = req.params;
-    const { username, email, roleId } = req.body;
-    
-    // Validate inputs
-    if (!username && !email && !roleId) {
-      return res.status(400).json({ message: 'No update data provided' });
-    }
-    
-    // Check if user exists
-    const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [id]);
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    // Update query parts
-    const updates = [];
-    const values = [];
-    
-    if (username) {
-      updates.push(`username = $${updates.length + 1}`);
-      values.push(username);
-    }
-    
-    if (email) {
-      updates.push(`email = $${updates.length + 1}`);
-      values.push(email);
-    }
-    
-    if (roleId) {
-      // Check if role exists
-      const roleCheck = await client.query('SELECT id FROM roles WHERE id = $1', [roleId]);
-      if (roleCheck.rows.length === 0) {
-        return res.status(404).json({ message: 'Role not found' });
-      }
-      
-      updates.push(`role_id = $${updates.length + 1}`);
-      values.push(roleId);
-    }
-    
-    updates.push(`updated_at = $${updates.length + 1}`);
-    values.push(new Date());
-    
-    // Add user ID as the last parameter
-    values.push(id);
-    
-    const updateQuery = `
-      UPDATE users 
-      SET ${updates.join(', ')} 
-      WHERE id = $${values.length}
-      RETURNING id
-    `;
-    
-    await client.query(updateQuery, values);
-    await client.query('COMMIT');
-    
-    res.json({ message: 'User updated successfully' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error updating user:', err);
-    
-    if (getErrorCode(err) === '23505') {
-      return res.status(400).json({ message: 'Username or email already exists' });
-    }
-    
-    res.status(500).json({ message: 'Server error' });
-  } finally {
-    client.release();
+    const result = await prisma.$transaction(async transaction => {
+      if (!await transaction.user.findUnique({ where: { id: params.id }, select: { id: true } })) return 'missing-user';
+      if (input.roleId && !await transaction.role.findUnique({ where: { id: input.roleId }, select: { id: true } })) return 'missing-role';
+      await transaction.user.update({
+        where: { id: params.id },
+        data: {
+          ...(input.username !== undefined ? { username: input.username } : {}),
+          ...(input.email !== undefined ? { email: input.email } : {}),
+          ...(input.roleId !== undefined ? { roleId: input.roleId } : {}),
+          updatedAt: new Date(),
+        },
+      });
+      return 'updated';
+    });
+    if (result === 'missing-user') return res.status(404).json({ message: 'User not found' });
+    if (result === 'missing-role') return res.status(404).json({ message: 'Role not found' });
+    return res.json({ message: 'User updated successfully' });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    if (getErrorCode(error) === 'P2002') return res.status(400).json({ message: 'Username or email already exists' });
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   PUT /api/auth/users/:id/password
- * @desc    Update user password (admin only)
- * @access  Admin
+ * @route PUT /api/auth/users/:id/password
+ * @desc Replace a user's password.
+ * @access Admin
  */
 router.put('/users/:id/password', auth, isAdmin, async (req, res) => {
-  const client = await getClient();
-  
+  const params = parseInput(idParamsSchema, req.params, res);
+  const input = parseInput(updatePasswordSchema, req.body, res);
+  if (!params || !input) return;
   try {
-    await client.query('BEGIN');
-    
-    const { id } = req.params;
-    const { password } = req.body;
-    
-    // Validate inputs
-    if (!password) {
-      return res.status(400).json({ message: 'No update data provided' });
-    }
-    
-    // Check if user exists
-    const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [id]);
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Update query parts
-    const updates = [];
-    const values = [];
-    
-    updates.push(`password = $${updates.length + 1}`);
-    values.push(hashedPassword);
-    
-    
-    updates.push(`updated_at = $${updates.length + 1}`);
-    values.push(new Date());
-    
-    // Add user ID as the last parameter
-    values.push(id);
-    
-    const updateQuery = `
-      UPDATE users 
-      SET ${updates.join(', ')} 
-      WHERE id = $${values.length}
-      RETURNING id
-    `;
-    
-    await client.query(updateQuery, values);
-    await client.query('COMMIT');
-    
-    res.json({ message: 'User updated successfully' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error updating user:', err);
-    
-    res.status(500).json({ message: 'Server error' });
-  } finally {
-    client.release();
+    const exists = await prisma.user.findUnique({ where: { id: params.id }, select: { id: true } });
+    if (!exists) return res.status(404).json({ message: 'User not found' });
+    await prisma.user.update({
+      where: { id: params.id },
+      data: { password: await bcrypt.hash(input.password, 10), updatedAt: new Date() },
+    });
+    return res.json({ message: 'User updated successfully' });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   DELETE /api/auth/users/:id
- * @desc    Delete a user (admin only)
- * @access  Admin
+ * @route DELETE /api/auth/users/:id
+ * @desc Delete a user while preventing self-deletion.
+ * @access Admin
  */
 router.delete('/users/:id', auth, isAdmin, async (req, res) => {
+  const params = parseInput(idParamsSchema, req.params, res);
+  if (!params) return;
+  if (params.id === getUserId(req)) return res.status(400).json({ message: 'Cannot delete your own account' });
   try {
-    const { id } = req.params;
-    const adminId = getUserId(req);
-    
-    // Prevent admin from deleting themselves
-    if (parseInt(String(id)) === adminId) {
-      return res.status(400).json({ message: 'Cannot delete your own account' });
-    }
-    
-    const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    res.json({ message: 'User deleted successfully' });
-  } catch (err) {
-    console.error('Error deleting user:', err);
-    res.status(500).json({ message: 'Server error' });
+    const result = await prisma.user.deleteMany({ where: { id: params.id } });
+    if (result.count === 0) return res.status(404).json({ message: 'User not found' });
+    return res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   GET /api/auth/roles
- * @desc    Get all available roles (admin only)
- * @access  Admin
+ * @route GET /api/auth/roles
+ * @desc List available user roles.
+ * @access Admin
  */
-router.get('/roles', auth, isAdmin, async (req, res) => {
+router.get('/roles', auth, isAdmin, async (_req, res) => {
   try {
-    const rolesResult = await query('SELECT * FROM roles ORDER BY id');
-    res.json(rolesResult.rows);
-  } catch (err) {
-    console.error('Error fetching roles:', err);
+    const roles = await prisma.role.findMany({ orderBy: { id: 'asc' } });
+    res.json(roles.map(role => ({
+      id: role.id, name: role.name, description: role.description, created_at: role.createdAt,
+    })));
+  } catch (error) {
+    console.error('Error fetching roles:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

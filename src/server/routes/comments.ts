@@ -1,335 +1,178 @@
 import express from 'express';
-import { query, getClient } from '../db/db.js';
-import { auth, getUserId, getUserRole, checkRole } from '../middleware/auth.js';
+import { commentBodySchema, idParamsSchema, paginationQuerySchema, postIdParamsSchema, updateCommentSchema } from '../../shared/index.js';
+import { prisma } from '../db/prisma.js';
+import { auth, checkRole, getUserId, getUserRole } from '../middleware/auth.js';
+import { serializeComment } from '../utils/serializers.js';
+import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
 
 /**
- * @route   GET /api/comments/post/:postId
- * @desc    Get all comments for a post with nested replies
- * @access  Public
+ * @route GET /api/comments/post/:postId
+ * @desc Return a post's comments as a nested reply tree.
+ * @access Public
  */
 router.get('/post/:postId', async (req, res) => {
+  const params = parseInput(postIdParamsSchema, req.params, res);
+  if (!params) return;
   try {
-    const { postId } = req.params;
-    
-    // Validate post exists
-    const postCheck = await query('SELECT id FROM posts WHERE id = $1', [postId]);
-    if (postCheck.rows.length === 0) {
+    if (!await prisma.post.findUnique({ where: { id: params.postId }, select: { id: true } })) {
       return res.status(404).json({ message: 'Post not found' });
     }
-    
-    // Get all comments for the post
-    const result = await query(`
-      SELECT 
-        c.id,
-        c.content,
-        c.parent_id,
-        c.created_at,
-        c.updated_at,
-        c.is_deleted,
-        u.username as author,
-        u.id as author_id
-      FROM comments c
-      LEFT JOIN users u ON c.author_id = u.id
-      WHERE c.post_id = $1
-      ORDER BY c.created_at ASC
-    `, [postId]);
-    
-    // Transform flat list into nested structure
-    const comments = result.rows;
-    type NestedComment = Record<string, unknown> & { replies: NestedComment[] };
-    const commentMap = new Map<unknown, NestedComment>();
-    const topLevelComments: NestedComment[] = [];
-    
-    // First pass: create all comment objects with empty replies array
-    comments.forEach(comment => {
-      commentMap.set(comment.id, {
-        ...comment,
-        replies: []
-      });
+    const records = await prisma.comment.findMany({
+      where: { postId: params.postId },
+      orderBy: { createdAt: 'asc' },
+      include: { author: { select: { username: true } } },
     });
-    
-    // Second pass: organize into parent-child relationships
-    comments.forEach(comment => {
-      const commentObj = commentMap.get(comment.id);
-      if (comment.parent_id) {
-        const parent = commentMap.get(comment.parent_id);
-        if (parent) {
-          if (commentObj) parent.replies.push(commentObj);
-        }
-      } else {
-        if (commentObj) topLevelComments.push(commentObj);
-      }
-    });
-    
-    res.json(topLevelComments);
-  } catch (err) {
-    console.error('Error fetching comments:', err);
-    res.status(500).json({ message: 'Server error' });
+    type NestedComment = ReturnType<typeof serializeComment> & { replies: NestedComment[] };
+    const map = new Map<number, NestedComment>();
+    const topLevel: NestedComment[] = [];
+    for (const record of records) map.set(record.id, { ...serializeComment(record), replies: [] });
+    for (const record of records) {
+      const comment = map.get(record.id)!;
+      const parent = record.parentId ? map.get(record.parentId) : undefined;
+      if (parent) parent.replies.push(comment);
+      else topLevel.push(comment);
+    }
+    return res.json(topLevel);
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   POST /api/comments
- * @desc    Create a new comment
- * @access  Private (authenticated users)
+ * @route POST /api/comments
+ * @desc Create a top-level comment or reply.
+ * @access Private
  */
 router.post('/', auth, async (req, res) => {
+  const input = parseInput(commentBodySchema, req.body, res);
+  if (!input) return;
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ message: 'Authentication required' });
   try {
-    const { postId, content, parentId } = req.body;
-    const userId = getUserId(req);
-    
-    // Validate input
-    if (!postId || !content) {
-      return res.status(400).json({ message: 'Post ID and content are required' });
-    }
-    
-    if (content.trim().length === 0) {
-      return res.status(400).json({ message: 'Comment content cannot be empty' });
-    }
-    
-    if (content.length > 2000) {
-      return res.status(400).json({ message: 'Comment content cannot exceed 2000 characters' });
-    }
-    
-    // Validate post exists
-    const postCheck = await query('SELECT id FROM posts WHERE id = $1', [postId]);
-    if (postCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-    
-    // Validate parent comment exists if specified
-    if (parentId) {
-      const parentCheck = await query(
-        'SELECT id FROM comments WHERE id = $1 AND post_id = $2',
-        [parentId, postId]
-      );
-      if (parentCheck.rows.length === 0) {
-        return res.status(404).json({ message: 'Parent comment not found' });
-      }
-    }
-    
-    // Create comment
-    const result = await query(`
-      INSERT INTO comments (post_id, author_id, content, parent_id)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `, [postId, userId, content.trim(), parentId || null]);
-    
-    // Get comment with author info
-    const commentResult = await query(`
-      SELECT 
-        c.id,
-        c.content,
-        c.parent_id,
-        c.created_at,
-        c.updated_at,
-        c.is_deleted,
-        u.username as author,
-        u.id as author_id
-      FROM comments c
-      LEFT JOIN users u ON c.author_id = u.id
-      WHERE c.id = $1
-    `, [result.rows[0]!.id]);
-    
-    res.status(201).json(commentResult.rows[0]!);
-  } catch (err) {
-    console.error('Error creating comment:', err);
-    res.status(500).json({ message: 'Server error' });
+    const outcome = await prisma.$transaction(async transaction => {
+      if (!await transaction.post.findUnique({ where: { id: input.postId }, select: { id: true } })) return 'missing-post';
+      if (input.parentId && !await transaction.comment.findFirst({
+        where: { id: input.parentId, postId: input.postId }, select: { id: true },
+      })) return 'missing-parent';
+      return transaction.comment.create({
+        data: { postId: input.postId, authorId: userId, content: input.content, parentId: input.parentId ?? null },
+        include: { author: { select: { username: true } } },
+      });
+    });
+    if (outcome === 'missing-post') return res.status(404).json({ message: 'Post not found' });
+    if (outcome === 'missing-parent') return res.status(404).json({ message: 'Parent comment not found' });
+    return res.status(201).json(serializeComment(outcome));
+  } catch (error) {
+    console.error('Error creating comment:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   PUT /api/comments/:id
- * @desc    Update a comment (author only or admin/moderator)
- * @access  Private
+ * @route PUT /api/comments/:id
+ * @desc Update a comment as its author, moderator, or administrator.
+ * @access Private
  */
 router.put('/:id', auth, async (req, res) => {
+  const params = parseInput(idParamsSchema, req.params, res);
+  const input = parseInput(updateCommentSchema, req.body, res);
+  if (!params || !input) return;
   try {
-    const { id } = req.params;
-    const { content } = req.body;
-    const userId = getUserId(req);
-    const userRole = getUserRole(req);
-    
-    // Validate input
-    if (!content) {
-      return res.status(400).json({ message: 'Content is required' });
-    }
-    
-    if (content.trim().length === 0) {
-      return res.status(400).json({ message: 'Comment content cannot be empty' });
-    }
-    
-    if (content.length > 2000) {
-      return res.status(400).json({ message: 'Comment content cannot exceed 2000 characters' });
-    }
-    
-    // Check if comment exists and get author
-    const commentCheck = await query(
-      'SELECT author_id, is_deleted FROM comments WHERE id = $1',
-      [id]
-    );
-    
-    if (commentCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Comment not found' });
-    }
-    
-    const comment = commentCheck.rows[0]!;
-    
-    if (comment.is_deleted) {
-      return res.status(400).json({ message: 'Cannot edit deleted comment' });
-    }
-    
-    // Check permissions
-    const canEdit = comment.author_id === userId || 
-                   ['admin', 'moderator'].includes(userRole ?? '');
-    
-    if (!canEdit) {
+    const comment = await prisma.comment.findUnique({ where: { id: params.id } });
+    if (!comment) return res.status(404).json({ message: 'Comment not found' });
+    if (comment.isDeleted) return res.status(400).json({ message: 'Cannot edit deleted comment' });
+    if (comment.authorId !== getUserId(req) && !['admin', 'moderator'].includes(getUserRole(req) ?? '')) {
       return res.status(403).json({ message: 'Not authorized to edit this comment' });
     }
-    
-    // Update comment
-    await query(
-      'UPDATE comments SET content = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [content.trim(), id]
-    );
-    
-    // Get updated comment with author info
-    const updatedResult = await query(`
-      SELECT 
-        c.id,
-        c.content,
-        c.parent_id,
-        c.created_at,
-        c.updated_at,
-        c.is_deleted,
-        u.username as author,
-        u.id as author_id
-      FROM comments c
-      LEFT JOIN users u ON c.author_id = u.id
-      WHERE c.id = $1
-    `, [id]);
-    
-    res.json(updatedResult.rows[0]!);
-  } catch (err) {
-    console.error('Error updating comment:', err);
-    res.status(500).json({ message: 'Server error' });
+    const updated = await prisma.comment.update({
+      where: { id: params.id },
+      data: { content: input.content, updatedAt: new Date() },
+      include: { author: { select: { username: true } } },
+    });
+    return res.json(serializeComment(updated));
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   DELETE /api/comments/:id
- * @desc    Delete a comment (soft delete - author only or admin/moderator)
- * @access  Private
+ * @route DELETE /api/comments/:id
+ * @desc Soft-delete a comment as its author, moderator, or administrator.
+ * @access Private
  */
 router.delete('/:id', auth, async (req, res) => {
-  const client = await getClient();
-  
+  const params = parseInput(idParamsSchema, req.params, res);
+  if (!params) return;
   try {
-    await client.query('BEGIN');
-    
-    const { id } = req.params;
-    const userId = getUserId(req);
-    const userRole = getUserRole(req);
-    
-    // Check if comment exists and get author
-    const commentCheck = await client.query(
-      'SELECT author_id, is_deleted FROM comments WHERE id = $1',
-      [id]
-    );
-    
-    if (commentCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Comment not found' });
-    }
-    
-    const comment = commentCheck.rows[0]!;
-    
-    if (comment.is_deleted) {
-      return res.status(400).json({ message: 'Comment already deleted' });
-    }
-    
-    // Check permissions
-    const canDelete = comment.author_id === userId || 
-                     ['admin', 'moderator'].includes(userRole ?? '');
-    
-    if (!canDelete) {
+    const comment = await prisma.comment.findUnique({ where: { id: params.id } });
+    if (!comment) return res.status(404).json({ message: 'Comment not found' });
+    if (comment.isDeleted) return res.status(400).json({ message: 'Comment already deleted' });
+    if (comment.authorId !== getUserId(req) && !['admin', 'moderator'].includes(getUserRole(req) ?? '')) {
       return res.status(403).json({ message: 'Not authorized to delete this comment' });
     }
-    
-    // Soft delete the comment
-    await client.query(
-      'UPDATE comments SET is_deleted = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
-      [id]
-    );
-    
-    await client.query('COMMIT');
-    
-    res.json({ message: 'Comment deleted successfully' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error deleting comment:', err);
-    res.status(500).json({ message: 'Server error' });
-  } finally {
-    client.release();
+    await prisma.comment.update({ where: { id: params.id }, data: { isDeleted: true, updatedAt: new Date() } });
+    return res.json({ message: 'Comment deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting comment:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   GET /api/comments/stats/:postId
- * @desc    Get comment statistics for a post
- * @access  Public
+ * @route GET /api/comments/stats/:postId
+ * @desc Return non-deleted comment totals for a post.
+ * @access Public
  */
 router.get('/stats/:postId', async (req, res) => {
+  const params = parseInput(postIdParamsSchema, req.params, res);
+  if (!params) return;
   try {
-    const { postId } = req.params;
-    
-    const result = await query(`
-      SELECT 
-        COUNT(*) as total_comments,
-        COUNT(CASE WHEN parent_id IS NULL THEN 1 END) as top_level_comments,
-        COUNT(CASE WHEN parent_id IS NOT NULL THEN 1 END) as replies
-      FROM comments 
-      WHERE post_id = $1 AND is_deleted = FALSE
-    `, [postId]);
-    
-    res.json(result.rows[0]!);
-  } catch (err) {
-    console.error('Error fetching comment stats:', err);
-    res.status(500).json({ message: 'Server error' });
+    const [total, topLevel] = await Promise.all([
+      prisma.comment.count({ where: { postId: params.postId, isDeleted: false } }),
+      prisma.comment.count({ where: { postId: params.postId, isDeleted: false, parentId: null } }),
+    ]);
+    return res.json({
+      total_comments: String(total),
+      top_level_comments: String(topLevel),
+      replies: String(total - topLevel),
+    });
+  } catch (error) {
+    console.error('Error fetching comment stats:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   GET /api/comments/recent
- * @desc    Get recent comments for admin dashboard
- * @access  Admin/Moderator only
+ * @route GET /api/comments/recent
+ * @desc Return recent comments for moderation.
+ * @access Moderator or Admin
  */
 router.get('/recent', auth, checkRole(['admin', 'moderator']), async (req, res) => {
+  const query = parseInput(paginationQuerySchema, req.query, res);
+  if (!query) return;
   try {
-    const limit = parseInt(String(req.query.limit ?? '10')) || 10;
-    const offset = parseInt(String(req.query.offset ?? '0')) || 0;
-    
-    const result = await query(`
-      SELECT 
-        c.id,
-        c.content,
-        c.created_at,
-        c.is_deleted,
-        p.title as post_title,
-        p.id as post_id,
-        u.username as author
-      FROM comments c
-      LEFT JOIN posts p ON c.post_id = p.id
-      LEFT JOIN users u ON c.author_id = u.id
-      ORDER BY c.created_at DESC
-      LIMIT $1 OFFSET $2
-    `, [limit, offset]);
-    
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Error fetching recent comments:', err);
-    res.status(500).json({ message: 'Server error' });
+    const comments = await prisma.comment.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: query.limit,
+      skip: query.offset,
+      include: { author: { select: { username: true } }, post: { select: { id: true, title: true } } },
+    });
+    return res.json(comments.map(comment => ({
+      id: comment.id,
+      content: comment.content,
+      created_at: comment.createdAt,
+      is_deleted: comment.isDeleted,
+      post_title: comment.post?.title ?? null,
+      post_id: comment.postId,
+      author: comment.author?.username ?? null,
+    })));
+  } catch (error) {
+    console.error('Error fetching recent comments:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

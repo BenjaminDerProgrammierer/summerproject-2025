@@ -36,6 +36,21 @@ Express is the only application process. In development it mounts Vite as middle
 
 For a production-like local check, run `pnpm start`.
 
+## Docker
+
+Copy `.env.example` to `.env` and replace the placeholder secrets (Run `./generate-secrets.sh`), then build and
+start the complete application stack:
+
+```sh
+docker compose up --build -d
+docker compose ps
+```
+
+Open <http://localhost:3000>. Compose waits for PostgreSQL, applies pending Prisma
+migrations, and then starts the application. PostgreSQL data and uploaded
+attachments are stored in the `postgres-data` and `attachments` named volumes.
+Markdown documents are mounted read-only from `content/`.
+
 ## Configuration
 
 - `DATABASE_URL` — PostgreSQL connection URL; required

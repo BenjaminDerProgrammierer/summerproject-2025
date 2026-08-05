@@ -1,139 +1,120 @@
+import crypto from 'node:crypto';
 import express from 'express';
-import { query } from '../db/db.js';
-import { auth, isAdmin, getUserId } from '../middleware/auth.js';
-import crypto from 'crypto';
+import { idParamsSchema, signupKeyNoteSchema, validateSignupKeySchema } from '../../shared/index.js';
+import { prisma } from '../db/prisma.js';
+import { auth, getUserId, isAdmin } from '../middleware/auth.js';
+import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
 
 /**
- * @route   GET /api/signup-keys
- * @desc    Get all signup keys (admin only)
- * @access  Private (Admin)
+ * @route GET /api/signup-keys
+ * @desc List signup keys and their creators.
+ * @access Admin
  */
-router.get('/', auth, isAdmin, async (req, res) => {
+router.get('/', auth, isAdmin, async (_req, res) => {
   try {
-    const result = await query(`
-      SELECT 
-        sk.id,
-        sk.key_value,
-        sk.note,
-        sk.created_at,
-        creator.username as created_by_username
-      FROM signup_keys sk
-      LEFT JOIN users creator ON sk.created_by = creator.id
-      ORDER BY sk.created_at DESC
-    `);
-    
-    res.json(result.rows);
-  } catch(err) {
-    console.error('Error fetching signup keys:', err);
+    const keys = await prisma.signupKey.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { creator: { select: { username: true } } },
+    });
+    res.json(keys.map(key => ({
+      id: key.id,
+      key_value: key.keyValue,
+      note: key.note,
+      created_at: key.createdAt,
+      created_by_username: key.creator?.username ?? null,
+    })));
+  } catch (error) {
+    console.error('Error fetching signup keys:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   POST /api/signup-keys
- * @desc    Create a new signup key (admin only)
- * @access  Private (Admin)
+ * @route POST /api/signup-keys
+ * @desc Generate a one-time signup key.
+ * @access Admin
  */
 router.post('/', auth, isAdmin, async (req, res) => {
+  const input = parseInput(signupKeyNoteSchema, req.body, res);
+  if (!input) return;
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ message: 'Authentication required' });
   try {
-    const { note } = req.body;
-    const userId = getUserId(req);
-    
-    // Generate a secure random key
-    const keyValue = crypto.randomBytes(32).toString('hex');
-    
-    const result = await query(
-      'INSERT INTO signup_keys (key_value, note, created_by) VALUES ($1, $2, $3) RETURNING *',
-      [keyValue, note || null, userId]
-    );
-    
-    res.status(201).json(result.rows[0]!);
-  } catch(err) {
-    console.error('Error creating signup key:', err);
+    const key = await prisma.signupKey.create({
+      data: {
+        keyValue: crypto.randomBytes(32).toString('hex'),
+        note: input.note || null,
+        createdBy: userId,
+      },
+    });
+    res.status(201).json({
+      id: key.id, key_value: key.keyValue, note: key.note,
+      created_by: key.createdBy, created_at: key.createdAt,
+    });
+  } catch (error) {
+    console.error('Error creating signup key:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   DELETE /api/signup-keys/:id
- * @desc    Delete a signup key (admin only)
- * @access  Private (Admin)
+ * @route DELETE /api/signup-keys/:id
+ * @desc Delete a signup key.
+ * @access Admin
  */
 router.delete('/:id', auth, isAdmin, async (req, res) => {
+  const params = parseInput(idParamsSchema, req.params, res);
+  if (!params) return;
   try {
-    const { id } = req.params;
-    
-    // Check if key exists
-    const keyCheck = await query('SELECT id FROM signup_keys WHERE id = $1', [id]);
-    if (keyCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Signup key not found' });
-    }
-    
-    await query('DELETE FROM signup_keys WHERE id = $1', [id]);
-    
-    res.json({ message: 'Signup key deleted successfully' });
-  } catch(err) {
-    console.error('Error deleting signup key:', err);
-    res.status(500).json({ message: 'Server error' });
+    const result = await prisma.signupKey.deleteMany({ where: { id: params.id } });
+    if (result.count === 0) return res.status(404).json({ message: 'Signup key not found' });
+    return res.json({ message: 'Signup key deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting signup key:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   PUT /api/signup-keys/:id
- * @desc    Update a signup key note (admin only)
- * @access  Private (Admin)
+ * @route PUT /api/signup-keys/:id
+ * @desc Update a signup key's note.
+ * @access Admin
  */
 router.put('/:id', auth, isAdmin, async (req, res) => {
+  const params = parseInput(idParamsSchema, req.params, res);
+  const input = parseInput(signupKeyNoteSchema, req.body, res);
+  if (!params || !input) return;
   try {
-    const { id } = req.params;
-    const { note } = req.body;
-    
-    // Check if key exists
-    const keyCheck = await query('SELECT id FROM signup_keys WHERE id = $1', [id]);
-    if (keyCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Signup key not found' });
-    }
-    
-    const result = await query(
-      'UPDATE signup_keys SET note = $1 WHERE id = $2 RETURNING *',
-      [note || null, id]
-    );
-    
-    res.json(result.rows[0]!);
-  } catch(err) {
-    console.error('Error updating signup key:', err);
-    res.status(500).json({ message: 'Server error' });
+    const exists = await prisma.signupKey.findUnique({ where: { id: params.id }, select: { id: true } });
+    if (!exists) return res.status(404).json({ message: 'Signup key not found' });
+    const key = await prisma.signupKey.update({ where: { id: params.id }, data: { note: input.note || null } });
+    return res.json({
+      id: key.id, key_value: key.keyValue, note: key.note,
+      created_by: key.createdBy, created_at: key.createdAt,
+    });
+  } catch (error) {
+    console.error('Error updating signup key:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
 /**
- * @route   POST /api/signup-keys/validate
- * @desc    Validate a signup key (public)
- * @access  Public
+ * @route POST /api/signup-keys/validate
+ * @desc Validate a signup key without consuming it.
+ * @access Public
  */
 router.post('/validate', async (req, res) => {
+  const input = parseInput(validateSignupKeySchema, req.body, res);
+  if (!input) return;
   try {
-    const { key } = req.body;
-    
-    if (!key) {
-      return res.status(400).json({ message: 'Signup key is required' });
-    }
-    
-    const result = await query(
-      'SELECT id FROM signup_keys WHERE key_value = $1',
-      [key]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Invalid signup key' });
-    }
-    
-    res.json({ valid: true, keyId: result.rows[0]!.id });
-  } catch(err) {
-    console.error('Error validating signup key:', err);
-    res.status(500).json({ message: 'Server error' });
+    const key = await prisma.signupKey.findUnique({ where: { keyValue: input.key }, select: { id: true } });
+    if (!key) return res.status(404).json({ message: 'Invalid signup key' });
+    return res.json({ valid: true, keyId: key.id });
+  } catch (error) {
+    console.error('Error validating signup key:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

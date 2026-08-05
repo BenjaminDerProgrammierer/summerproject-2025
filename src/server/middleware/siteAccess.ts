@@ -1,4 +1,4 @@
-import { query } from '../db/db.js';
+import { prisma } from '../db/prisma.js';
 import type { NextFunction, Request, Response } from 'express';
 
 /**
@@ -8,12 +8,8 @@ import type { NextFunction, Request, Response } from 'express';
 export async function checkSiteAccess(req: Request, res: Response, next: NextFunction): Promise<void | Response> {
   try {
     // Get site visibility setting
-    const result = await query(
-      'SELECT setting_value FROM site_settings WHERE setting_key = $1',
-      ['site_visibility']
-    );
-    
-    const siteVisibility = result.rows[0]!?.setting_value || 'private';
+    const setting = await prisma.siteSetting.findUnique({ where: { settingKey: 'site_visibility' } });
+    const siteVisibility = setting?.settingValue ?? 'private';
     
     // If site is public, allow access
     if (siteVisibility === 'public') {

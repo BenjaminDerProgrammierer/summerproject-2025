@@ -2,19 +2,60 @@ services:
   database:
     image: docker.io/library/postgres:18-alpine
     environment:
-      POSTGRES_DB: webontour
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-webontour}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
       - ./export:/export:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d webontour"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 2s
       timeout: 3s
       retries: 15
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-webontour}
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-webontour}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      MASTER_SIGNUP_KEY: ${MASTER_SIGNUP_KEY:?Set MASTER_SIGNUP_KEY in .env}
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      ENABLE_PRISMA_STUDIO: ${ENABLE_PRISMA_STUDIO:-false}
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - attachments:/app/storage/attachments
+      - ./content:/app/content:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    init: true
+    restart: unless-stopped
 
 volumes:
   postgres-data:
+  attachments:

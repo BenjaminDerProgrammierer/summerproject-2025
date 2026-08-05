@@ -11,9 +11,11 @@ import { load as loadYaml } from 'js-yaml';
 import swaggerUi from 'swagger-ui-express';
 import type { JsonObject } from 'swagger-ui-express';
 import type { ViteDevServer } from 'vite';
+import { documentParamsSchema } from '../shared/index.js';
 import { attachmentsDir, clientDistDir, documentsDir, openapiPath, projectRoot } from './config/paths.js';
 import { closePool, getPool } from './db/db.js';
 import initDB from './db/init-db.js';
+import { closePrisma } from './db/prisma.js';
 import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
 import commentsRoutes from './routes/comments.js';
@@ -22,13 +24,13 @@ import setupRoutes from './routes/setup.js';
 import signupKeysRoutes from './routes/signup-keys.js';
 import siteSettingsRoutes from './routes/site-settings.js';
 import { getErrorMessage } from './utils/errors.js';
-
-dotenv.config({ quiet: true });
+import { parseInput } from './utils/validation.js';
 
 let viteDevServer: ViteDevServer | undefined;
 const PostgresSessionStore = connectPgSimple(session);
 
 async function startServer(): Promise<Server> {
+  dotenv.config({ quiet: true });
   await initDB();
 
   if (!process.env.JWT_SECRET || !process.env.MASTER_SIGNUP_KEY) {
@@ -96,7 +98,9 @@ async function startServer(): Promise<Server> {
   app.use('/api/site-settings', siteSettingsRoutes);
 
   app.get('/api/document/:filename', (req, res) => {
-    const filename = `${String(req.params.filename)}.md`;
+    const params = parseInput(documentParamsSchema, req.params, res);
+    if (!params) return;
+    const filename = `${params.filename}.md`;
     const filePath = resolve(documentsDir, filename);
     if (!filePath.startsWith(`${documentsDir}/`)) {
       return res.status(400).json({ message: 'Invalid filename' });
@@ -160,6 +164,7 @@ async function gracefulShutdown(server: Server): Promise<void> {
       server.close(error => error ? reject(error) : resolveClose());
     }),
     closePool(),
+    closePrisma(),
     viteDevServer?.close(),
   ]);
   console.log('HTTP, database, and development connections closed.');
