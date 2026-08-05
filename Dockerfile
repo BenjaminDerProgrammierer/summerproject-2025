@@ -36,20 +36,7 @@ RUN DATABASE_URL=postgresql://postgres:postgres@database:5432/webontour \
     pnpm install --prod --frozen-lockfile
 
 
-FROM base AS migrate
-
-ENV NODE_ENV=production
-
-COPY --from=dependencies /app/node_modules ./node_modules
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts ./
-COPY prisma ./prisma
-
-USER node
-
-CMD ["pnpm", "db:migrate"]
-
-
-FROM node-base AS runtime
+FROM base AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -58,7 +45,8 @@ WORKDIR /app
 
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --chown=node:node package.json openapi.yaml ./
+COPY --chown=node:node package.json prisma.config.ts openapi.yaml ./
+COPY --chown=node:node prisma ./prisma
 COPY --chown=node:node content ./content
 
 RUN mkdir -p storage/attachments && chown -R node:node storage
@@ -67,4 +55,4 @@ USER node
 
 EXPOSE 3000
 
-CMD ["node", "dist/server/server/main.js"]
+CMD ["pnpm", "run", "start:runtime"]

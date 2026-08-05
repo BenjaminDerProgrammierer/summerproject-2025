@@ -28,7 +28,7 @@ Express is the only application process. In development it mounts Vite as middle
 
 - `pnpm dev` — run Express and Vite with automatic reloads
 - `pnpm build` — generate Prisma Client and build the server and client
-- `pnpm start` — build and run the application in production mode
+- `pnpm start` — build, migrate the database, and run the application in production mode
 - `pnpm typecheck` — type-check the server, client, and build configuration
 - `pnpm db:validate` — validate the Prisma schema
 - `pnpm db:generate` — regenerate Prisma Client
@@ -46,10 +46,10 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open <http://localhost:3000>. Compose waits for PostgreSQL, applies pending Prisma
-migrations, and then starts the application. PostgreSQL data and uploaded
-attachments are stored in the `postgres-data` and `attachments` named volumes.
-Markdown documents are mounted read-only from `content/`.
+Open <http://localhost:3000>. The application container waits for PostgreSQL and
+applies pending Prisma migrations before starting the server. PostgreSQL data and
+uploaded attachments are stored in the `postgres-data` and `attachments` named
+volumes. Markdown documents are mounted read-only from `content/`.
 
 ## Configuration
 

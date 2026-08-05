@@ -17,17 +17,6 @@ services:
       retries: 15
     restart: unless-stopped
 
-  migrate:
-    build:
-      context: .
-      target: migrate
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@database:5432/${POSTGRES_DB:-webontour}
-    depends_on:
-      database:
-        condition: service_healthy
-    restart: "no"
-
   app:
     build:
       context: .
@@ -45,8 +34,8 @@ services:
       - attachments:/app/storage/attachments
       - ./content:/app/content:ro
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      database:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 10s

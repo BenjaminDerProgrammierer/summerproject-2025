@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "tsx watch src/server/main.ts",
     "prestart": "pnpm build",
-    "start": "NODE_ENV=production node dist/server/server/main.js",
+    "start": "pnpm start:runtime",
+    "start:runtime": "pnpm db:migrate && NODE_ENV=production node dist/server/server/main.js",
     "build": "prisma generate && tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "db:validate": "prisma validate",
@@ -44,6 +45,7 @@
     "multer": "^2.2.0",
     "pg": "^8.22.0",
     "postgres": "3.4.7",
+    "prisma": "^7.9.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "swagger-ui-express": "^5.0.1",
@@ -66,7 +68,6 @@
     "@types/swagger-ui-express": "^4.1.8",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/tsconfig": "^0.9.1",
-    "prisma": "^7.9.1",
     "tsx": "4.23.5",
     "typescript": "~7.0.2",
     "vite": "^8.2.0"
