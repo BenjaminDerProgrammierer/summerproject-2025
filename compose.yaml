@@ -18,6 +18,7 @@ services:
     restart: unless-stopped
 
   app:
+    image: ghcr.io/benjaminderprogrammierer/webontour:latest
     build:
       context: .
       target: runtime
