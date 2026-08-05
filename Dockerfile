@@ -36,7 +36,7 @@ RUN DATABASE_URL=postgresql://postgres:postgres@database:5432/webontour \
     pnpm install --prod --frozen-lockfile
 
 
-FROM base AS runtime
+FROM node-base AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -48,6 +48,7 @@ COPY --from=build /app/dist ./dist
 COPY --chown=node:node package.json prisma.config.ts openapi.yaml ./
 COPY --chown=node:node prisma ./prisma
 COPY --chown=node:node content ./content
+COPY --chown=node:node --chmod=755 docker-entrypoint.sh ./docker-entrypoint.sh
 
 RUN mkdir -p storage/attachments && chown -R node:node storage
 
@@ -55,4 +56,4 @@ USER node
 
 EXPOSE 3000
 
-CMD ["pnpm", "run", "start:runtime"]
+CMD ["./docker-entrypoint.sh"]
