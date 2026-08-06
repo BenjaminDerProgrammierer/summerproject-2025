@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma.js';
 import type { NextFunction, Request, Response } from 'express';
+import { auth } from './auth.js';
 
 /**
  * Middleware to check if site content is accessible
@@ -16,26 +17,12 @@ export async function checkSiteAccess(req: Request, res: Response, next: NextFun
       return next();
     }
     
-    // If site is private, check authentication
-    if (!req.session?.userId && !req.headers.authorization) {
-      return res.status(401).json({ 
-        message: 'This site is private. Please log in to view content.',
-        requiresAuth: true 
-      });
-    }
-    
-    // User is authenticated, allow access
-    next();
+    // Private content requires a valid, non-revoked session or JWT.
+    return auth(req, res, next);
   } catch (err) {
     console.error('Error checking site access:', err);
-    // On error, default to requiring auth for safety
-    if (!req.session?.userId && !req.headers.authorization) {
-      return res.status(401).json({ 
-        message: 'Authentication required.',
-        requiresAuth: true 
-      });
-    }
-    next();
+    // Fail closed if visibility cannot be determined.
+    return res.status(503).json({ message: 'Site access could not be verified' });
   }
 }
 

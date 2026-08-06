@@ -54,8 +54,8 @@ volumes. Markdown documents are mounted read-only from `content/`.
 ## Configuration
 
 - `DATABASE_URL` — PostgreSQL connection URL; required
-- `JWT_SECRET` — secret used to sign authentication tokens; required
-- `MASTER_SIGNUP_KEY` — master key used to create initial signup access; required
+- `JWT_SECRET` — secret used to sign authentication tokens; required and at least 32 characters
+- `MASTER_SIGNUP_KEY` — master key required for initial administrator setup and master signup access; required and at least 20 characters
 - `PORT` — HTTP port, default `3000`
 - `APP_URL` — public application origin used for links in email, default `http://localhost:3000`
 - `CORS_ORIGIN` — optional allowed cross-origin client origin

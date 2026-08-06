@@ -3,6 +3,7 @@ import connectPgSimple from 'connect-pg-simple';
 import dotenv from 'dotenv';
 import express from 'express';
 import type { ErrorRequestHandler } from 'express';
+import helmet from 'helmet';
 import session from 'express-session';
 import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
@@ -15,7 +16,9 @@ import { documentParamsSchema } from '../shared/index.js';
 import { attachmentsDir, clientDistDir, documentsDir, openapiPath, projectRoot } from './config/paths.js';
 import { closePool, getPool } from './db/db.js';
 import initDB from './db/init-db.js';
-import { closePrisma } from './db/prisma.js';
+import { closePrisma, prisma } from './db/prisma.js';
+import { requireSameOriginForSession } from './middleware/sameOrigin.js';
+import { checkSiteAccess } from './middleware/siteAccess.js';
 import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
 import commentsRoutes from './routes/comments.js';
@@ -27,14 +30,18 @@ import { getErrorMessage } from './utils/errors.js';
 import { parseInput } from './utils/validation.js';
 
 let viteDevServer: ViteDevServer | undefined;
+let shutdownStarted = false;
 const PostgresSessionStore = connectPgSimple(session);
 
 async function startServer(): Promise<Server> {
   dotenv.config({ quiet: true });
   await initDB();
 
-  if (!process.env.JWT_SECRET || !process.env.MASTER_SIGNUP_KEY) {
-    throw new Error('JWT_SECRET and MASTER_SIGNUP_KEY must be provided through the environment');
+  const jwtSecret = process.env.JWT_SECRET ?? '';
+  const masterSignupKey = process.env.MASTER_SIGNUP_KEY ?? '';
+  if (jwtSecret.length < 32 || masterSignupKey.length < 20 ||
+      jwtSecret.startsWith('WARNING_') || masterSignupKey.startsWith('WARNING_')) {
+    throw new Error('JWT_SECRET must contain at least 32 characters and MASTER_SIGNUP_KEY at least 20 non-placeholder characters');
   }
 
   const app = express();
@@ -47,22 +54,40 @@ async function startServer(): Promise<Server> {
   }
 
   app.set('trust proxy', 1);
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://picsum.photos', 'https://fastly.picsum.photos'],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: production ? [] : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    strictTransportSecurity: production
+      ? { maxAge: 63_072_000, includeSubDomains: true, preload: true }
+      : false,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  }));
   app.use(cors({
     origin: process.env.CORS_ORIGIN || false,
     credentials: true,
   }));
   app.use(express.json({ limit: '1mb' }));
-  app.use('/uploads', express.static(attachmentsDir));
-  app.use('/uploads', (_req, res) => {
-    res.status(404).json({ message: 'Upload not found' });
-  });
   app.use(session({
     store: new PostgresSessionStore({
       pool: getPool(),
       tableName: 'session',
       createTableIfMissing: false,
     }),
-    secret: process.env.JWT_SECRET,
+    secret: jwtSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -72,6 +97,11 @@ async function startServer(): Promise<Server> {
       sameSite: 'lax',
     },
   }));
+  app.use(requireSameOriginForSession);
+  app.use('/uploads', checkSiteAccess, express.static(attachmentsDir));
+  app.use('/uploads', (_req, res) => {
+    res.status(404).json({ message: 'Upload not found' });
+  });
 
   try {
     const swaggerDocument = loadYaml(readFileSync(openapiPath, 'utf8'));
@@ -79,7 +109,20 @@ async function startServer(): Promise<Server> {
       res.type('text/yaml').sendFile(openapiPath);
     });
     app.use('/api', swaggerUi.serve);
-    app.get('/api', swaggerUi.setup(swaggerDocument as JsonObject, {
+    app.get('/api', (_req, res, next) => {
+      // Swagger UI bootstraps with an inline script; keep its exception scoped to this page.
+      res.set('Content-Security-Policy', [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+      ].join('; '));
+      next();
+    }, swaggerUi.setup(swaggerDocument as JsonObject, {
       explorer: true,
       customCss: '.swagger-ui .topbar { display: none }',
       swaggerOptions: { defaultModelsExpandDepth: -1 },
@@ -110,8 +153,15 @@ async function startServer(): Promise<Server> {
     });
   });
 
-  app.get('/api/health', (_req, res) => {
-    res.json({ status: 'UP', time: new Date() });
+  app.get('/api/health', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return res.json({ status: 'UP', time: new Date() });
+    } catch (error) {
+      console.error('Health check failed:', getErrorMessage(error));
+      return res.status(503).json({ status: 'DOWN', time: new Date() });
+    }
   });
 
   app.use('/api', (_req, res) => {
@@ -152,6 +202,8 @@ async function startServer(): Promise<Server> {
 }
 
 async function gracefulShutdown(server: Server): Promise<void> {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
   console.log('Received shutdown signal, closing connections...');
   const forcedExit = setTimeout(() => {
     console.error('Could not close connections in time, forcefully shutting down');
@@ -159,16 +211,32 @@ async function gracefulShutdown(server: Server): Promise<void> {
   }, 10_000);
   forcedExit.unref();
 
-  await Promise.all([
-    new Promise<void>((resolveClose, reject) => {
+  let failed = false;
+  try {
+    // Stop accepting work and allow active requests to finish before closing their
+    // database clients.
+    await new Promise<void>((resolveClose, reject) => {
       server.close(error => error ? reject(error) : resolveClose());
-    }),
-    closePool(),
-    closePrisma(),
-    viteDevServer?.close(),
-  ]);
+    });
+  } catch (error) {
+    failed = true;
+    console.error('HTTP server shutdown failed:', error);
+  }
+
+  try {
+    await Promise.all([
+      closePool(),
+      closePrisma(),
+      viteDevServer?.close(),
+    ]);
+  } catch (error) {
+    failed = true;
+    console.error('Resource cleanup failed:', error);
+  }
+
+  clearTimeout(forcedExit);
   console.log('HTTP, database, and development connections closed.');
-  process.exit(0);
+  process.exit(failed ? 1 : 0);
 }
 
 if (process.env.NODE_ENV !== 'test') {

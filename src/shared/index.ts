@@ -19,7 +19,9 @@ export const signupSchema = credentialsSchema.extend({
   masterKey: z.string().max(512).optional(),
 });
 
-export const setupAdminSchema = signupSchema.pick({ username: true, password: true, email: true });
+export const setupAdminSchema = signupSchema.pick({ username: true, password: true, email: true }).extend({
+  masterKey: z.string().min(1, 'Setup key is required').max(512),
+});
 
 export const updateUserSchema = z.object({
   username: z.string().trim().min(1).max(50).optional(),

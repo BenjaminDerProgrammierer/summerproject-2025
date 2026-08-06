@@ -13,6 +13,7 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
 import Callout from './Callout.vue';
+import { sanitizeHtml } from '../utils/sanitize-html';
 
 const props = defineProps({
   markdown: {
@@ -189,7 +190,7 @@ const renderMarkdown = () => {
   // Render processed markdown
   let html = md.render(processedMarkdown);
   
-  renderedMarkdown.value = html;
+  renderedMarkdown.value = sanitizeHtml(html);
 };
 
 // Process the callout placeholders after the markdown is rendered to the DOM

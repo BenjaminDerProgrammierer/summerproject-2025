@@ -2,6 +2,7 @@ import express from 'express';
 import { commentBodySchema, idParamsSchema, paginationQuerySchema, postIdParamsSchema, updateCommentSchema } from '../../shared/index.js';
 import { prisma } from '../db/prisma.js';
 import { auth, checkRole, getUserId, getUserRole } from '../middleware/auth.js';
+import { checkSiteAccess } from '../middleware/siteAccess.js';
 import { serializeComment } from '../utils/serializers.js';
 import { parseInput } from '../utils/validation.js';
 
@@ -10,9 +11,9 @@ const router = express.Router();
 /**
  * @route GET /api/comments/post/:postId
  * @desc Return a post's comments as a nested reply tree.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/post/:postId', async (req, res) => {
+router.get('/post/:postId', checkSiteAccess, async (req, res) => {
   const params = parseInput(postIdParamsSchema, req.params, res);
   if (!params) return;
   try {
@@ -125,9 +126,9 @@ router.delete('/:id', auth, async (req, res) => {
 /**
  * @route GET /api/comments/stats/:postId
  * @desc Return non-deleted comment totals for a post.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/stats/:postId', async (req, res) => {
+router.get('/stats/:postId', checkSiteAccess, async (req, res) => {
   const params = parseInput(postIdParamsSchema, req.params, res);
   if (!params) return;
   try {

@@ -234,7 +234,7 @@ paths:
       tags:
         - auth
       summary: Logout user
-      description: Logout the current user and clear session
+      description: Logout the current user, clear the session, and revoke all previously issued sessions and bearer tokens
       operationId: logoutUser
       security:
         - bearerAuth: []
@@ -251,6 +251,12 @@ paths:
                     example: Logged out successfully
         '401':
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Missing or untrusted Origin for a session-authenticated request
           content:
             application/json:
               schema:
@@ -2276,7 +2282,7 @@ paths:
       tags:
         - setup
       summary: Create admin user
-      description: Create the initial admin user (only works when no users exist)
+      description: Create the initial admin user using the configured master setup key (only works when no users exist)
       operationId: createAdminUser
       requestBody:
         required: true
@@ -2288,6 +2294,7 @@ paths:
                 - username
                 - password
                 - email
+                - masterKey
               properties:
                 username:
                   type: string
@@ -2301,6 +2308,10 @@ paths:
                   type: string
                   format: email
                   example: admin@example.com
+                masterKey:
+                  type: string
+                  format: password
+                  description: Value of the configured MASTER_SIGNUP_KEY
       responses:
         '201':
           description: Admin user created successfully
@@ -2319,6 +2330,18 @@ paths:
                     $ref: '#/components/schemas/User'
         '400':
           description: Bad request or setup already completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Invalid setup key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many setup attempts
           content:
             application/json:
               schema:
@@ -2364,11 +2387,11 @@ paths:
       tags:
         - setup
       summary: Health check
-      description: Check if the API is running correctly
+      description: Check if the API and database are ready to serve requests
       operationId: healthCheck
       responses:
         '200':
-          description: API status
+          description: API and database are healthy
           content:
             application/json:
               schema:
@@ -2377,6 +2400,19 @@ paths:
                   status:
                     type: string
                     example: UP
+                  time:
+                    type: string
+                    format: date-time
+        '503':
+          description: Database is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: DOWN
                   time:
                     type: string
                     format: date-time

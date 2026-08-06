@@ -6,6 +6,7 @@ export interface AuthTokenPayload {
   id: number;
   username: string;
   role: UserRole;
+  authVersion: number;
   iat?: number;
   exp?: number;
 }

@@ -3,6 +3,7 @@ import express from 'express';
 import { idParamsSchema, signupKeyNoteSchema, validateSignupKeySchema } from '../../shared/index.js';
 import { prisma } from '../db/prisma.js';
 import { auth, getUserId, isAdmin } from '../middleware/auth.js';
+import { signupKeyValidationLimiter } from '../middleware/rateLimiters.js';
 import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
@@ -105,7 +106,7 @@ router.put('/:id', auth, isAdmin, async (req, res) => {
  * @desc Validate a signup key without consuming it.
  * @access Public
  */
-router.post('/validate', async (req, res) => {
+router.post('/validate', signupKeyValidationLimiter, async (req, res) => {
   const input = parseInput(validateSignupKeySchema, req.body, res);
   if (!input) return;
   try {

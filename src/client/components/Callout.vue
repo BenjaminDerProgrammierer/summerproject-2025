@@ -16,6 +16,7 @@ import {
     Quote,
     ChevronDown
 } from '@lucide/vue'
+import { sanitizeHtml } from '../utils/sanitize-html'
 
 // Props
 const props = defineProps({
@@ -29,6 +30,7 @@ const props = defineProps({
 
 const isCollapsed = ref(props.folded)
 const isFoldable = computed(() => props.folded !== undefined)
+const sanitizedContent = computed(() => sanitizeHtml(props.content))
 
 const calloutStyles = {
     note: { color: '8, 109, 221', icon: Pencil },
@@ -77,7 +79,7 @@ function capitalize(str) {
         </div>
 
         <div class="content" v-if="!isCollapsed">
-            <div v-if="content" v-html="content"></div>
+            <div v-if="sanitizedContent" v-html="sanitizedContent"></div>
             <Callout v-for="(child, index) in children" :key="index" v-bind="child" />
         </div>
     </div>

@@ -103,9 +103,9 @@ async function findDateSortedPostIds(
 /**
  * @route GET /api/posts/tags
  * @desc List all available tags.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/tags', async (_req, res) => {
+router.get('/tags', checkSiteAccess, async (_req, res) => {
   try {
     res.json((await prisma.tag.findMany({ orderBy: { name: 'asc' } })).map(serializeTag));
   } catch (error) {
@@ -117,9 +117,9 @@ router.get('/tags', async (_req, res) => {
 /**
  * @route GET /api/posts/tags/:id
  * @desc Return a tag by ID.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/tags/:id', async (req, res) => {
+router.get('/tags/:id', checkSiteAccess, async (req, res) => {
   const params = parseInput(idParamsSchema, req.params, res);
   if (!params) return;
   try {
@@ -135,9 +135,9 @@ router.get('/tags/:id', async (req, res) => {
 /**
  * @route GET /api/posts/categories
  * @desc List all post categories.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/categories', async (_req, res) => {
+router.get('/categories', checkSiteAccess, async (_req, res) => {
   try {
     res.json((await prisma.category.findMany({ orderBy: { name: 'asc' } })).map(serializeCategory));
   } catch (error) {
@@ -149,9 +149,9 @@ router.get('/categories', async (_req, res) => {
 /**
  * @route GET /api/posts/categories/:id
  * @desc Return a category by ID.
- * @access Public
+ * @access Public or authenticated, according to site visibility
  */
-router.get('/categories/:id', async (req, res) => {
+router.get('/categories/:id', checkSiteAccess, async (req, res) => {
   const params = parseInput(idParamsSchema, req.params, res);
   if (!params) return;
   try {

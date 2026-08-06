@@ -14,6 +14,7 @@ const user = ref('');
 const email = ref('');
 const password = ref('');
 const signupKey = ref('');
+const setupKey = ref('');
 const confirmPassword = ref('');
 
 const loginError = ref('');
@@ -96,7 +97,6 @@ async function login(event: Event) {
     const data = await response.json();
 
     if (response.ok) {
-      console.log('Login successful:', data);
       await router.replace(redirectAfterLogin(route.query));
     } else {
       console.error('Login failed:', data);
@@ -142,13 +142,6 @@ async function signup(event: Event) {
     return;
   }
   
-  console.log('Creating user:', {
-    username: user.value,
-    email: email.value,
-    password: password.value,
-    signupKey: signupKey.value
-  });
-
   try {
     const requestBody: any = {
       username: user.value,
@@ -190,7 +183,7 @@ async function setup(event: Event) {
   setupError.value = null;
   
   // Basic validation
-  if (!user.value || !email.value || !password.value) {
+  if (!user.value || !email.value || !password.value || !setupKey.value) {
     setupError.value = 'All fields are required';
     return;
   }
@@ -222,7 +215,8 @@ async function setup(event: Event) {
       body: JSON.stringify({
         username: user.value,
         email: email.value,
-        password: password.value
+        password: password.value,
+        masterKey: setupKey.value
       })
     });
     
@@ -257,6 +251,10 @@ async function setup(event: Event) {
           <div>
             <label for="email">Email:</label>
             <input type="email" id="email" name="email" v-model="email" required>
+          </div>
+          <div>
+            <label for="setup-key">Setup key:</label>
+            <input type="password" id="setup-key" name="setup-key" v-model="setupKey" autocomplete="off" required>
           </div>
           <div>
             <label for="password">Password:</label>

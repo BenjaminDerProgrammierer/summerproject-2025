@@ -4,8 +4,10 @@ import jwt from 'jsonwebtoken';
 import { credentialsSchema, idParamsSchema, notificationPreferencesSchema, signupSchema, updatePasswordSchema, updateUserSchema } from '../../shared/index.js';
 import { prisma } from '../db/prisma.js';
 import { auth, getUserId, isAdmin } from '../middleware/auth.js';
+import { loginLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { USER_ROLES, type UserRole } from '../types/security.js';
 import { getErrorCode, getErrorMessage } from '../utils/errors.js';
+import { establishAuthenticatedSession } from '../utils/session.js';
 import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
@@ -19,7 +21,8 @@ function isUserRole(value: string): value is UserRole {
  * @desc Register a user using the configured registration policy.
  * @access Public (signup key or master key may be required)
  */
-router.post('/signup', async (req, res) => {
+router.post('/signup', registrationLimiter, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   const input = parseInput(signupSchema, req.body, res);
   if (!input) return;
 
@@ -60,7 +63,7 @@ router.post('/signup', async (req, res) => {
           roleId: role.id,
           signupNote: signupKey?.note ?? null,
         },
-        select: { id: true, username: true, email: true },
+        select: { id: true, username: true, email: true, authVersion: true },
       });
       if (signupKey) await transaction.signupKey.delete({ where: { id: signupKey.id } });
       return { user, role: role.name };
@@ -74,17 +77,25 @@ router.post('/signup', async (req, res) => {
       return res.status(500).json({ message: 'User role not found' });
     }
 
-    req.session.userId = outcome.user.id;
-    req.session.role = 'user';
+    await establishAuthenticatedSession(req, {
+      id: outcome.user.id,
+      role: 'user',
+      authVersion: outcome.user.authVersion,
+    });
     const token = jwt.sign(
-      { id: outcome.user.id, username: outcome.user.username, role: 'user' },
+      { id: outcome.user.id, username: outcome.user.username, role: 'user', authVersion: outcome.user.authVersion },
       process.env.JWT_SECRET!,
       { expiresIn: '1d' },
     );
     return res.status(201).json({
       token,
       message: 'User registered successfully',
-      user: { ...outcome.user, role: outcome.role },
+      user: {
+        id: outcome.user.id,
+        username: outcome.user.username,
+        email: outcome.user.email,
+        role: outcome.role,
+      },
     });
   } catch (error) {
     console.error('Error registering user:', error);
@@ -100,7 +111,8 @@ router.post('/signup', async (req, res) => {
  * @desc Authenticate a user and create a session and JWT.
  * @access Public
  */
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   const input = parseInput(credentialsSchema, req.body, res);
   if (!input) return;
   try {
@@ -112,10 +124,13 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    req.session.userId = user.id;
-    req.session.role = user.role.name;
+    await establishAuthenticatedSession(req, {
+      id: user.id,
+      role: user.role.name,
+      authVersion: user.authVersion,
+    });
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role.name },
+      { id: user.id, username: user.username, role: user.role.name, authVersion: user.authVersion },
       process.env.JWT_SECRET!,
       { expiresIn: '1d' },
     );
@@ -179,12 +194,26 @@ router.put('/me/notifications', auth, async (req, res) => {
  * @desc Destroy the authenticated user's session.
  * @access Private
  */
-router.post('/logout', auth, (req, res) => {
-  req.session.destroy(error => {
-    if (error) return res.status(500).json({ message: 'Could not log out' });
+router.post('/logout', auth, async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ message: 'Authentication required' });
+
+  try {
+    // Revoke every session and JWT issued with the previous authentication version.
+    await prisma.user.update({
+      where: { id: userId },
+      data: { authVersion: { increment: 1 } },
+    });
+    await new Promise<void>((resolve, reject) => {
+      req.session.destroy(error => error ? reject(error) : resolve());
+    });
     res.clearCookie('connect.sid');
     return res.json({ message: 'Logged out successfully' });
-  });
+  } catch (error) {
+    console.error('Logout error:', getErrorMessage(error));
+    res.clearCookie('connect.sid');
+    return res.status(500).json({ message: 'Could not log out' });
+  }
 });
 
 /**
@@ -259,7 +288,11 @@ router.put('/users/:id/password', auth, isAdmin, async (req, res) => {
     if (!exists) return res.status(404).json({ message: 'User not found' });
     await prisma.user.update({
       where: { id: params.id },
-      data: { password: await bcrypt.hash(input.password, 10), updatedAt: new Date() },
+      data: {
+        password: await bcrypt.hash(input.password, 10),
+        authVersion: { increment: 1 },
+        updatedAt: new Date(),
+      },
     });
     return res.json({ message: 'User updated successfully' });
   } catch (error) {

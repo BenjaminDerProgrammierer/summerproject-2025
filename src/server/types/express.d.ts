@@ -12,6 +12,7 @@ declare module 'express-session' {
   interface SessionData {
     userId?: number;
     role?: UserRole;
+    authVersion?: number;
     studioCsrfToken?: string;
     studioCsrfExpiresAt?: number;
   }

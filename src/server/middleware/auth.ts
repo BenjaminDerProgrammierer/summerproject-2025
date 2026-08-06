@@ -8,31 +8,57 @@ import { getErrorMessage } from '../utils/errors.js';
 /**
  * Authentication middleware that checks for session or JWT token
  */
-export function auth(req: Request, res: Response, next: NextFunction): void | Response {
-  // Check for session-based authentication first
-  if (req.session?.userId) {
-    return next();
-  }
-
-  // Then check for JWT token in headers
-  const token = req.header('x-auth-token') || req.header('authorization')?.replace('Bearer ', '');
-  if (!token) {
-    return res.status(401).json({ message: 'Authentication required' });
-  }
-
+export async function auth(req: Request, res: Response, next: NextFunction): Promise<void | Response> {
   try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) throw new Error('JWT_SECRET is not configured');
-    const decoded = jwt.verify(token, secret);
-    if (typeof decoded === 'string' || typeof decoded.id !== 'number' ||
-        typeof decoded.username !== 'string' || !USER_ROLES.includes(decoded.role as UserRole)) {
-      throw new Error('Token payload is invalid');
+    let userId: number;
+    let credentialAuthVersion: number;
+
+    if (req.session?.userId) {
+      userId = req.session.userId;
+      if (typeof req.session.authVersion !== 'number') {
+        throw new Error('Session was issued before authentication revocation support');
+      }
+      credentialAuthVersion = req.session.authVersion;
+    } else {
+      const token = req.header('x-auth-token') || req.header('authorization')?.replace(/^Bearer\s+/i, '');
+      if (!token) return res.status(401).json({ message: 'Authentication required' });
+
+      const secret = process.env.JWT_SECRET;
+      if (!secret) throw new Error('JWT_SECRET is not configured');
+      const decoded = jwt.verify(token, secret);
+      if (typeof decoded === 'string' || typeof decoded.id !== 'number' ||
+          typeof decoded.authVersion !== 'number') {
+        throw new Error('Token payload is invalid');
+      }
+      userId = decoded.id;
+      credentialAuthVersion = decoded.authVersion;
     }
-    req.user = decoded as AuthTokenPayload;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        authVersion: true,
+        role: { select: { name: true } },
+      },
+    });
+    if (!user?.role || !USER_ROLES.includes(user.role.name as UserRole) ||
+        user.authVersion !== credentialAuthVersion) {
+      req.session?.destroy(() => undefined);
+      res.clearCookie('connect.sid');
+      return res.status(401).json({ message: 'Authentication has been revoked' });
+    }
+
+    const role = user.role.name as UserRole;
+    req.user = { id: user.id, username: user.username, role, authVersion: user.authVersion } satisfies AuthTokenPayload;
+    if (req.session?.userId) req.session.role = role;
     next();
   } catch (err) {
     console.error('Token verification error:', getErrorMessage(err));
-    res.status(401).json({ message: 'Invalid or expired token' });
+    req.session?.destroy(() => undefined);
+    res.clearCookie('connect.sid');
+    return res.status(401).json({ message: 'Invalid or expired authentication' });
   }
 }
 
