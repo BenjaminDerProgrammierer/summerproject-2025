@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Logo from '../components/Logo.vue';
+import { loginRoute } from '../auth-navigation';
 
 // Define interfaces for our data structures
 interface Attachment {
@@ -151,13 +152,7 @@ async function fetchPosts(isLoadingMore = false) {
       totalPosts.value = data.pagination.totalPosts;
       hasMorePosts.value = data.pagination.hasNextPage;
     } else if (response.status === 401) {
-      // Handle case where site is private and authentication is required
-      const errorData = await response.json();
-      if (errorData.requiresAuth) {
-        error.value = "This site is private. Please log in to view posts.";
-      } else {
-        error.value = "Authentication required to access content.";
-      }
+      await router.replace(loginRoute(route.fullPath));
     } else {
       throw new Error('Failed to fetch posts');
     }

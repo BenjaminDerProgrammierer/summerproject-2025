@@ -2,11 +2,15 @@
 <script setup lang="ts">
 import PostCard from './PostCard.vue';
 import { ref, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import type { Post } from '../types/Post';
+import { loginRoute } from '../auth-navigation';
 
 const posts = ref<Post[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+const route = useRoute();
+const router = useRouter();
 
 // Define emits to communicate with parent
 const emit = defineEmits<{
@@ -34,13 +38,7 @@ async function fetchRecentPosts() {
                 posts.value = Array.isArray(data) ? data.slice(0, 6) : [];
             }
         } else if (response.status === 401) {
-            // Handle case where site is private and authentication is required
-            const errorData = await response.json();
-            if (errorData.requiresAuth) {
-                error.value = "Please log in to view posts.";
-            } else {
-                error.value = "Authentication required to access content.";
-            }
+            await router.replace(loginRoute(route.fullPath));
             emit('authError', true);
         } else {
             throw new Error('Failed to fetch posts');

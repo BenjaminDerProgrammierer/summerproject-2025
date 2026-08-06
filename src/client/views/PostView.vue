@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import MarkdownRenderer from '../components/MarkdownRenderer.vue';
 import CommentsSection from '../components/CommentsSection.vue';
 import ErrorBox from '../components/ErrorBox.vue';
+import { loginRoute } from '../auth-navigation';
 
 interface Attachment {
   id: number;
@@ -64,6 +65,8 @@ async function fetchPost() {
 
     if (response.ok) {
       post.value = await response.json();
+    } else if (response.status === 401) {
+      await router.replace(loginRoute(route.fullPath));
     } else {
       throw new Error('Post not found');
     }

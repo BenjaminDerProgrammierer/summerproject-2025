@@ -142,7 +142,7 @@ router.get('/me', auth, async (req, res) => {
       where: { id: userId },
       select: { id: true, username: true, email: true, emailNotifications: true, role: { select: { name: true } } },
     });
-    if (!user?.role) return res.status(404).json({ message: 'User not found' });
+    if (!user?.role) return res.status(401).json({ message: 'Authentication required' });
     return res.json({ id: user.id, username: user.username, email: user.email, emailNotifications: user.emailNotifications, role: user.role.name });
   } catch (error) {
     console.error('Error getting user profile:', getErrorMessage(error));

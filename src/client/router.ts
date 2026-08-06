@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import { loginRoute } from './auth-navigation';
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -20,7 +21,8 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/admin',
     name: 'admin',
-    component: () => import('./views/AdminView.vue')
+    component: () => import('./views/AdminView.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/about',
@@ -30,7 +32,8 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/account',
     name: 'account',
-    component: () => import('./views/AccountView.vue')
+    component: () => import('./views/AccountView.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/sites',
@@ -57,6 +60,21 @@ const routes: Array<RouteRecordRaw> = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+});
+
+router.beforeEach(async to => {
+  if (!to.meta.requiresAuth) return true;
+
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'include' });
+    if (response.ok) return true;
+    if (response.status === 401 || response.status === 404) return loginRoute(to.fullPath);
+  } catch (error) {
+    console.error('Could not verify authentication before navigation:', error);
+  }
+
+  // Let the destination render its normal server-error state for non-auth failures.
+  return true;
 });
 
 export default router;

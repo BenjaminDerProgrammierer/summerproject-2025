@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { defineAsyncComponent, ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import UserManagement from '../components/UserManagement.vue';
 import CommentsManagement from '../components/CommentsManagement.vue';
 import SignupKeysManagement from '../components/SignupKeysManagement.vue';
 import SiteSettingsManagement from '../components/SiteSettingsManagement.vue';
 import Logo from '../components/Logo.vue';
+import { loginRoute } from '../auth-navigation';
 
 const PrismaStudio = defineAsyncComponent(() => import('../components/PrismaStudio.vue'));
 
@@ -47,6 +48,7 @@ interface User {
 }
 
 const router = useRouter();
+const route = useRoute();
 const posts = ref<Post[]>([]);
 const isAuthenticated = ref(false);
 const loading = ref(true);
@@ -88,7 +90,7 @@ onMounted(async () => {
     await Promise.all([fetchPosts(), fetchTags(), fetchCategories()]);
   } else {
     // Redirect to login if not authenticated
-    router.replace('/login');
+    router.replace(loginRoute(route.fullPath));
   }
 });
 

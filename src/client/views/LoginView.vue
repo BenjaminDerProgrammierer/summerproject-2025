@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import router from '../router';
+import { useRoute, useRouter } from 'vue-router';
+import { redirectAfterLogin } from '../auth-navigation';
 
-const isLogin = ref(router.currentRoute.value.path === '/login');
-console.log('isLogin:', isLogin.value, router.currentRoute.value.path);
+const route = useRoute();
+const router = useRouter();
+const isLogin = ref(route.path === '/login');
 const needsSetup = ref(false);
 const registrationMode = ref('invite_only'); // 'open', 'invite_only', 'closed'
 
@@ -95,7 +97,7 @@ async function login(event: Event) {
 
     if (response.ok) {
       console.log('Login successful:', data);
-      router.push('/');
+      await router.replace(redirectAfterLogin(route.query));
     } else {
       console.error('Login failed:', data);
       loginError.value = data.message || 'Login failed';
@@ -282,7 +284,7 @@ async function setup(event: Event) {
           <div v-if="loginError" class="error-message">{{ loginError }}</div>
           <button type="submit">Login</button>
         </form>
-        <p class="next-notice">Don't have an account? <span @click="router.push('/signup'); isLogin = false">Sign
+        <p class="next-notice">Don't have an account? <span @click="router.push({ path: '/signup', query: route.query }); isLogin = false">Sign
             up</span></p>
       </div>
 
@@ -313,7 +315,7 @@ async function setup(event: Event) {
           <button type="submit">Sign Up</button>
         </form>
         <p class="next-notice">Already have an account? <span
-            @click="router.push('/login'); isLogin = true">Login</span></p>
+            @click="router.push({ path: '/login', query: route.query }); isLogin = true">Login</span></p>
       </div>
     </div>
   </div>

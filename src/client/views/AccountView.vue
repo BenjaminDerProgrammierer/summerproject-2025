@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import Logo from '../components/Logo.vue';
+import { loginRoute } from '../auth-navigation';
 
 interface UserProfile {
   username: string;
@@ -10,6 +11,7 @@ interface UserProfile {
 }
 
 const router = useRouter();
+const route = useRoute();
 const profile = ref<UserProfile | null>(null);
 const loading = ref(true);
 const saving = ref(false);
@@ -19,8 +21,8 @@ const error = ref('');
 onMounted(async () => {
   try {
     const response = await fetch('/api/auth/me', { credentials: 'include' });
-    if (response.status === 401) {
-      await router.replace('/login');
+    if (response.status === 401 || response.status === 404) {
+      await router.replace(loginRoute(route.fullPath));
       return;
     }
     if (!response.ok) throw new Error('Could not load your account');
