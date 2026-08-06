@@ -46,6 +46,10 @@ function goToAdmin() {
   router.push('/admin');
 }
 
+function goToAccount() {
+  router.push('/account');
+}
+
 function handleAuthError(hasError: boolean) {
   hasAuthError.value = hasError;
 }
@@ -102,6 +106,7 @@ onMounted(async () => {
     <div class="user-status-bar">
         <div v-if="isLoggedIn" class="user-info">
             <span>Welcome, {{ currentUser?.username }}!</span>
+            <button @click="goToAccount" class="link-button accent small">Account</button>
             <button @click="goToAdmin" class="link-button secondary small">Dashboard</button>
             <button @click="logout" class="link-button secondary small">Logout</button>
         </div>

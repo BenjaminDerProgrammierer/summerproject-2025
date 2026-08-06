@@ -57,8 +57,15 @@ volumes. Markdown documents are mounted read-only from `content/`.
 - `JWT_SECRET` — secret used to sign authentication tokens; required
 - `MASTER_SIGNUP_KEY` — master key used to create initial signup access; required
 - `PORT` — HTTP port, default `3000`
+- `APP_URL` — public application origin used for links in email, default `http://localhost:3000`
 - `CORS_ORIGIN` — optional allowed cross-origin client origin
 - `ENABLE_PRISMA_STUDIO` — expose the admin-only embedded Prisma Studio when set to `true`; disabled by default
+- `SMTP_HOST` and `SMTP_PORT` — SMTP server address; the port defaults to `587`
+- `SMTP_SECURE` — use implicit TLS when set to `true`; defaults to `true` on port `465`
+- `SMTP_USER` and `SMTP_PASSWORD` — optional SMTP credentials; when used, both are required
+- `SMTP_FROM` — default sender address used by the email utility; required unless a sender is passed explicitly
+
+Users can opt into new-post emails from the Account page. New accounts start with notifications disabled.
 
 Never commit `.env` or production secrets.
 

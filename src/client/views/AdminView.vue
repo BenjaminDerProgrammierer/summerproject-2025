@@ -533,6 +533,7 @@ function toggleNewCategoryInput() {
         <div class="user-info">
           <span class="username">{{ currentUser?.username }}</span>
           <span class="role-badge" :class="currentUser?.role">{{ currentUser?.role }}</span>
+          <router-link to="/account" class="link-button accent">Account</router-link>
           <button @click="logout" class="link-button secondary">Logout</button>
         </div>
       </div>

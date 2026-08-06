@@ -9,6 +9,7 @@ import { Prisma } from '../generated/prisma/client.js';
 import { auth, getUserId, getUserRole, isWriterOrModerator } from '../middleware/auth.js';
 import { checkSiteAccess } from '../middleware/siteAccess.js';
 import { getErrorCode } from '../utils/errors.js';
+import { notifySubscribersOfNewPost } from '../utils/post-notifications.js';
 import { serializePost } from '../utils/serializers.js';
 import { parseInput } from '../utils/validation.js';
 
@@ -293,6 +294,9 @@ router.post('/', auth, isWriterOrModerator, upload.array('attachments', 5), asyn
         },
       },
       include: postInclude,
+    });
+    await notifySubscribersOfNewPost(post).catch(error => {
+      console.error('Error sending new-post notifications:', error);
     });
     return res.status(201).json({
       ...serializePost(post),

@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { credentialsSchema, idParamsSchema, signupSchema, updatePasswordSchema, updateUserSchema } from '../../shared/index.js';
+import { credentialsSchema, idParamsSchema, notificationPreferencesSchema, signupSchema, updatePasswordSchema, updateUserSchema } from '../../shared/index.js';
 import { prisma } from '../db/prisma.js';
 import { auth, getUserId, isAdmin } from '../middleware/auth.js';
 import { USER_ROLES, type UserRole } from '../types/security.js';
@@ -121,7 +121,7 @@ router.post('/login', async (req, res) => {
     );
     return res.json({
       token,
-      user: { id: user.id, username: user.username, email: user.email, role: user.role.name },
+      user: { id: user.id, username: user.username, email: user.email, emailNotifications: user.emailNotifications, role: user.role.name },
     });
   } catch (error) {
     console.error('Login error:', getErrorMessage(error));
@@ -140,12 +140,36 @@ router.get('/me', auth, async (req, res) => {
     if (!userId) return res.status(401).json({ message: 'Authentication required' });
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, email: true, role: { select: { name: true } } },
+      select: { id: true, username: true, email: true, emailNotifications: true, role: { select: { name: true } } },
     });
     if (!user?.role) return res.status(404).json({ message: 'User not found' });
-    return res.json({ id: user.id, username: user.username, email: user.email, role: user.role.name });
+    return res.json({ id: user.id, username: user.username, email: user.email, emailNotifications: user.emailNotifications, role: user.role.name });
   } catch (error) {
     console.error('Error getting user profile:', getErrorMessage(error));
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route PUT /api/auth/me/notifications
+ * @desc Update the authenticated user's email notification preference.
+ * @access Private
+ */
+router.put('/me/notifications', auth, async (req, res) => {
+  const input = parseInput(notificationPreferencesSchema, req.body, res);
+  if (!input) return;
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ message: 'Authentication required' });
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { emailNotifications: input.emailNotifications, updatedAt: new Date() },
+      select: { emailNotifications: true },
+    });
+    return res.json(user);
+  } catch (error) {
+    console.error('Error updating notification preferences:', getErrorMessage(error));
     return res.status(500).json({ message: 'Server error' });
   }
 });

@@ -31,6 +31,10 @@ export const updatePasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters long').max(200),
 });
 
+export const notificationPreferencesSchema = z.object({
+  emailNotifications: z.boolean(),
+});
+
 export const categorySchema = z.object({
   name: z.string().trim().min(1, 'Category name is required').max(100),
   description: optionalText,

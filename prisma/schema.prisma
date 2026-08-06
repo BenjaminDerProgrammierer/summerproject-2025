@@ -152,6 +152,7 @@ model User {
   createdAt    DateTime?     @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt    DateTime?     @default(now()) @map("updated_at") @db.Timestamp(6)
   signupNote   String?       @map("signup_note")
+  emailNotifications Boolean @default(false) @map("email_notifications")
   role         Role?         @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   comments     Comment[]
   posts        Post[]
