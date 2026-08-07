@@ -45,7 +45,7 @@ router.post('/create-admin', setupLimiter, async (req, res) => {
   try {
     const hashedPassword = await bcrypt.hash(input.password, 10);
     const user = await prisma.$transaction(async transaction => {
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(838104271)`;
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(838104271)`;
       if (await transaction.user.count() > 0) return null;
 
       const role = await transaction.role.findUnique({ where: { name: 'admin' } });

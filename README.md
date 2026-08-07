@@ -12,14 +12,14 @@ WEBonTour Blog System
 
 1. Copy `.env.example` to `.env` and replace its placeholder secrets. `./generate-secrets.sh` generates suitable values.
 2. Install dependencies with `pnpm install`.
-3. Start PostgreSQL with `podman compose up -d database`.
+3. Start PostgreSQL with `podman compose -f compose.dev.yaml up -d`.
 4. Apply the schema with `pnpm db:migrate`.
 5. Start the unified development server with `pnpm dev`, then open <http://localhost:3000>.
 
 Inside Distrobox, start the host's Podman service with:
 
 ```sh
-distrobox-host-exec podman compose up -d database
+distrobox-host-exec podman compose -f compose.dev.yaml up -d
 ```
 
 Express is the only application process. In development it mounts Vite as middleware; in production it serves the built client and API from the same origin.
@@ -60,6 +60,7 @@ volumes. Markdown documents are mounted read-only from `content/`.
 - `APP_URL` — public application origin used for links in email, default `http://localhost:3000`
 - `CORS_ORIGIN` — optional allowed cross-origin client origin
 - `ENABLE_PRISMA_STUDIO` — expose the admin-only embedded Prisma Studio when set to `true`; disabled by default
+- `WEATHER_API_KEY` — optional Weather.com API key override for the destination widget; defaults to the public key used by the companion weather dashboard
 - `SMTP_HOST` and `SMTP_PORT` — SMTP server address; the port defaults to `587`
 - `SMTP_SECURE` — use implicit TLS when set to `true`; defaults to `true` on port `465`
 - `SMTP_USER` and `SMTP_PASSWORD` — optional SMTP credentials; when used, both are required
@@ -79,7 +80,7 @@ Never commit `.env` or production secrets.
 - `content/documents` — Markdown documents served by the API
 - `public` — static client assets
 - `storage/attachments` — uploaded post attachments
-- `openapi.yaml` — API specification
+- `openapi.yaml` — detailed API specification, augmented at runtime with routes declared in Doxygen comments
 
 ## Verification
 

@@ -5,6 +5,7 @@ type PostRecord = {
   authorId: number | null;
   categoryId: number | null;
   customDate: Date | null;
+  isPinned: boolean;
   createdAt: Date | null;
   updatedAt: Date | null;
   author: { id: number; username: string } | null;
@@ -19,6 +20,7 @@ export function serializePost(post: PostRecord) {
     title: post.title,
     content: post.content,
     custom_date: post.customDate,
+    is_pinned: post.isPinned,
     created_at: post.createdAt,
     updated_at: post.updatedAt,
     author: post.author?.username ?? null,

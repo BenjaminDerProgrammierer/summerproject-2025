@@ -28,6 +28,7 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       ENABLE_PRISMA_STUDIO: ${ENABLE_PRISMA_STUDIO:-false}
+      WEATHER_API_KEY: ${WEATHER_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}

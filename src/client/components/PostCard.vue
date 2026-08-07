@@ -56,6 +56,7 @@ const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 <template>
     <div class="flip-container" :class="{ 'no-flip': !hasImage || isTouchDevice }">
         <div class="post" :class="{ 'no-flip': !hasImage || isTouchDevice }">
+            <span v-if="post.is_pinned" class="pin-badge">Pinned</span>
             <div class="front" v-if="hasImage || isTouchDevice">
                 <img :src="postImage" :alt="post.title" class="post-preview">
             </div>
@@ -115,6 +116,22 @@ const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     &.no-flip {
         transform: rotateY(0deg);
     }
+}
+
+.pin-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 4;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #fff3cd;
+    color: #7a5700;
+    font-family: var(--body-font-family);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
 }
 
 .front,

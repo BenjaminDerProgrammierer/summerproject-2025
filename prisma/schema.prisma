@@ -58,6 +58,7 @@ model Post {
   authorId    Int?         @map("author_id")
   categoryId  Int?         @map("category_id")
   customDate  DateTime?    @map("custom_date") @db.Timestamp(6)
+  isPinned    Boolean      @default(false) @map("is_pinned")
   createdAt   DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt   DateTime?    @default(now()) @map("updated_at") @db.Timestamp(6)
   author      User?        @relation(fields: [authorId], references: [id], onDelete: SetNull, onUpdate: NoAction)

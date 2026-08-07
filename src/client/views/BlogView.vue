@@ -29,6 +29,7 @@ interface Post {
   created_at: string;
   updated_at: string;
   published: boolean;
+  is_pinned: boolean;
   attachments: Attachment[];
   category_id?: number;
   category_name?: string;
@@ -351,7 +352,10 @@ function truncateContent(content: string, maxLength = 150): string {
           </div>
 
           <div class="post-details">
-            <h2>{{ post.title }}</h2>
+            <h2>
+              <span v-if="post.is_pinned" class="pin-badge">Pinned</span>
+              {{ post.title }}
+            </h2>
 
             <div class="post-meta">
               <span class="author">By {{ post.author }}</span>
@@ -656,6 +660,20 @@ img {
   font-family: var(--heading-font-family);
   font-size: 1.5rem;
   margin-bottom: 10px;
+}
+
+.pin-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5700;
+  font-family: var(--body-font-family);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 
 .post-meta {

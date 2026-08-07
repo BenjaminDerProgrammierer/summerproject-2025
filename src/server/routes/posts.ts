@@ -2,11 +2,11 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import multer from 'multer';
-import { categorySchema, idParamsSchema, postBodySchema, postsQuerySchema } from '../../shared/index.js';
+import { categorySchema, idParamsSchema, postBodySchema, postPinSchema, postsQuerySchema } from '../../shared/index.js';
 import { attachmentsDir } from '../config/paths.js';
 import { prisma } from '../db/prisma.js';
 import { Prisma } from '../generated/prisma/client.js';
-import { auth, getUserId, getUserRole, isWriterOrModerator } from '../middleware/auth.js';
+import { auth, getUserId, getUserRole, isAdmin, isWriterOrModerator } from '../middleware/auth.js';
 import { checkSiteAccess } from '../middleware/siteAccess.js';
 import { getErrorCode } from '../utils/errors.js';
 import { notifySubscribersOfNewPost } from '../utils/post-notifications.js';
@@ -94,7 +94,7 @@ async function findDateSortedPostIds(
     SELECT post."id"
     FROM "posts" post
     ${where}
-    ORDER BY COALESCE(post."custom_date", post."created_at") ${order}
+    ORDER BY post."is_pinned" DESC, COALESCE(post."custom_date", post."created_at") ${order}
     LIMIT ${input.limit} OFFSET ${offset}
   `);
   return rows.map(row => row.id);
@@ -323,6 +323,29 @@ router.get('/:id', checkSiteAccess, async (req, res) => {
     return res.json({ ...serializePost(post), tags: post.tags.map(({ tag }) => tag.name) });
   } catch (error) {
     console.error('Error fetching post:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/**
+ * @route PATCH /api/posts/:id/pin
+ * @desc Pin or unpin a post.
+ * @access Admin
+ */
+router.patch('/:id/pin', auth, isAdmin, async (req, res) => {
+  const params = parseInput(idParamsSchema, req.params, res);
+  const input = parseInput(postPinSchema, req.body, res);
+  if (!params || !input) return;
+  try {
+    const post = await prisma.post.update({
+      where: { id: params.id },
+      data: { isPinned: input.is_pinned, updatedAt: new Date() },
+      include: postInclude,
+    });
+    return res.json(serializePost(post));
+  } catch (error) {
+    if (getErrorCode(error) === 'P2025') return res.status(404).json({ message: 'Post not found' });
+    console.error('Error updating pinned post:', error);
     return res.status(500).json({ message: 'Server error' });
   }
 });

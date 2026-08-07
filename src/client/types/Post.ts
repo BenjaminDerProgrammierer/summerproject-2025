@@ -18,6 +18,7 @@ export interface Post {
   created_at: string;
   updated_at: string;
   custom_date?: string;
+  is_pinned: boolean;
   published?: boolean;
   attachments?: Attachment[];
   category_id?: number;

@@ -64,6 +64,10 @@ export const postBodySchema = z.object({
   removeAttachments: idArray,
 });
 
+export const postPinSchema = z.object({
+  is_pinned: z.boolean(),
+});
+
 export const postsQuerySchema = z.object({
   category: z.string().trim().min(1).optional(),
   tag: z.string().trim().min(1).optional(),
@@ -95,6 +99,22 @@ export const siteSettingParamsSchema = z.object({
 });
 
 export const siteSettingBodySchema = z.object({ value: z.string().min(1, 'Setting value is required').max(100) });
+
+export const destinationWidgetSchema = z.object({
+  enabled: z.boolean(),
+  name: z.string().trim().min(1, 'Destination name is required').max(100),
+  country: z.string().trim().max(100),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  placeId: z.string().trim().min(1, 'Weather.com place ID is required').max(255),
+  timezone: z.string().trim().min(1, 'Timezone is required').max(100),
+  temperatureUnit: z.enum(['celsius', 'fahrenheit']),
+  timeFormat: z.enum(['12', '24']).default('24'),
+});
+
+export const destinationSearchSchema = z.object({
+  q: z.string().trim().min(2, 'Enter at least two characters').max(100),
+});
 
 export const documentParamsSchema = z.object({
   filename: z.enum(['privacy', 'privacy-de', 'tos', 'tos-de']),

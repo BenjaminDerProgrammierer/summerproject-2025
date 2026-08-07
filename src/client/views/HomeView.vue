@@ -2,7 +2,8 @@
 import RecentPosts from '../components/RecentPosts.vue';
 import Logo from '../components/Logo.vue';
 import LatestCategories from '../components/LatestCategories.vue';
-import { ref, onMounted } from 'vue';
+import DestinationWidget from '../components/DestinationWidget.vue';
+import { ref, onBeforeUnmount, onMounted } from 'vue';
 import ErrorBox from '../components/ErrorBox.vue';
 import { useRouter } from 'vue-router';
 
@@ -22,6 +23,22 @@ const noPosts = ref(false);
 const hasAuthError = ref(false);
 const currentUser = ref<User | null>(null);
 const isLoggedIn = ref(false);
+const downArrow = ref<HTMLElement | null>(null);
+const isArrowUp = ref(false);
+const arrowRotation = ref(0);
+
+function updateArrowDirection() {
+  if (!downArrow.value) return;
+
+  const arrowBounds = downArrow.value.getBoundingClientRect();
+  const arrowCenter = arrowBounds.top + arrowBounds.height / 2;
+  const shouldPointUp = arrowCenter < window.innerHeight / 2;
+
+  if (shouldPointUp !== isArrowUp.value) {
+    isArrowUp.value = shouldPointUp;
+    arrowRotation.value += 180;
+  }
+}
 
 async function fetchCurrentUser() {
   try {
@@ -72,6 +89,10 @@ async function logout() {
 }
 
 onMounted(async () => {
+    updateArrowDirection();
+    window.addEventListener('scroll', updateArrowDirection, { passive: true });
+    window.addEventListener('resize', updateArrowDirection);
+
     // Check if user is logged in
     await fetchCurrentUser();
     
@@ -99,6 +120,11 @@ onMounted(async () => {
         console.error('Error fetching posts:', error);
     }
 });
+
+onBeforeUnmount(() => {
+    window.removeEventListener('scroll', updateArrowDirection);
+    window.removeEventListener('resize', updateArrowDirection);
+});
 </script>
 
 <template>
@@ -125,10 +151,18 @@ onMounted(async () => {
             <router-link to="/blog" class="link-button primary">View Blog Posts</router-link>
             <router-link to="/about" class="link-button secondary bordered">More about us</router-link>
         </div>
-        <div id="down-arrow">
-            <img :src="`assets/icons/MaterialSymbolsArrowDownward.svg`" alt="Down">
+        <div id="down-arrow" ref="downArrow">
+            <span class="arrow-motion" :class="{ 'arrow-up': isArrowUp }">
+                <img
+                    :style="{ transform: `rotate(${arrowRotation}deg)` }"
+                    :src="`assets/icons/MaterialSymbolsArrowDownward.svg`"
+                    :alt="isArrowUp ? 'Up' : 'Down'"
+                >
+            </span>
         </div>
     </section>
+
+    <DestinationWidget />
 
     <section id="recent">
         <ErrorBox v-if="apiError" title="Error" message="Unable to connect to the backend server. Is it on?" />
@@ -229,6 +263,7 @@ section {
 
 /* Hero section */
 section#hero {
+    position: relative;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -384,11 +419,22 @@ footer .footer-item ul.footer-links a:hover {
 /* Down arrow */
 #down-arrow {
     position: absolute;
-    bottom: 20px;
+    bottom: -32px;
     left: 0;
     width: 100vw;
     display: flex;
     justify-content: center;
+    z-index: 2;
+    pointer-events: none;
+}
+
+#down-arrow .arrow-motion {
+    display: flex;
+    animation: bounce 1s infinite;
+}
+
+#down-arrow .arrow-motion.arrow-up {
+    animation: none;
 }
 
 #down-arrow img {
@@ -398,7 +444,7 @@ footer .footer-item ul.footer-links a:hover {
     height: 64px;
     border: 2px solid black;
     border-radius: 50%;
-    animation: bounce 1s infinite;
+    transition: transform 0.4s ease-in-out;
 }
 
 @keyframes bounce {

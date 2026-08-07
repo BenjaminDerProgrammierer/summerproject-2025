@@ -5,20 +5,20 @@ import express from 'express';
 import type { ErrorRequestHandler } from 'express';
 import helmet from 'helmet';
 import session from 'express-session';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { resolve } from 'node:path';
-import { load as loadYaml } from 'js-yaml';
 import swaggerUi from 'swagger-ui-express';
 import type { JsonObject } from 'swagger-ui-express';
 import type { ViteDevServer } from 'vite';
 import { documentParamsSchema } from '../shared/index.js';
-import { attachmentsDir, clientDistDir, documentsDir, openapiPath, projectRoot } from './config/paths.js';
+import { attachmentsDir, clientDistDir, documentsDir, projectRoot } from './config/paths.js';
 import { closePool, getPool } from './db/db.js';
 import initDB from './db/init-db.js';
 import { closePrisma, prisma } from './db/prisma.js';
 import { requireSameOriginForSession } from './middleware/sameOrigin.js';
 import { checkSiteAccess } from './middleware/siteAccess.js';
+import { generateOpenApiDocument } from './openapi.js';
 import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
 import commentsRoutes from './routes/comments.js';
@@ -104,10 +104,8 @@ async function startServer(): Promise<Server> {
   });
 
   try {
-    const swaggerDocument = loadYaml(readFileSync(openapiPath, 'utf8'));
-    app.get('/api/openapi.yaml', (_req, res) => {
-      res.type('text/yaml').sendFile(openapiPath);
-    });
+    const swaggerDocument = generateOpenApiDocument();
+    app.get('/api/openapi.json', (_req, res) => res.json(swaggerDocument));
     app.use('/api', swaggerUi.serve);
     app.get('/api', (_req, res, next) => {
       // Swagger UI bootstraps with an inline script; keep its exception scoped to this page.
@@ -140,6 +138,11 @@ async function startServer(): Promise<Server> {
   app.use('/api/signup-keys', signupKeysRoutes);
   app.use('/api/site-settings', siteSettingsRoutes);
 
+  /**
+   * @route GET /api/document/:filename
+   * @desc Return a legal document or policy as Markdown.
+   * @access Public
+   */
   app.get('/api/document/:filename', (req, res) => {
     const params = parseInput(documentParamsSchema, req.params, res);
     if (!params) return;
@@ -153,6 +156,11 @@ async function startServer(): Promise<Server> {
     });
   });
 
+  /**
+   * @route GET /api/health
+   * @desc Report API and database readiness.
+   * @access Public
+   */
   app.get('/api/health', async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     try {

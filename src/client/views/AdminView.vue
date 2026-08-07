@@ -5,6 +5,7 @@ import UserManagement from '../components/UserManagement.vue';
 import CommentsManagement from '../components/CommentsManagement.vue';
 import SignupKeysManagement from '../components/SignupKeysManagement.vue';
 import SiteSettingsManagement from '../components/SiteSettingsManagement.vue';
+import DestinationSettingsManagement from '../components/DestinationSettingsManagement.vue';
 import Logo from '../components/Logo.vue';
 import { loginRoute } from '../auth-navigation';
 
@@ -29,6 +30,7 @@ interface Post {
   author_id: number;
   created_at: string;
   custom_date?: string;
+  is_pinned: boolean;
   category_name?: string;
   category_id?: number;
   tags: Tag[];
@@ -75,6 +77,8 @@ const customDate = ref('');
 const newTag = ref('');
 const newCategory = ref('');
 const showNewCategoryInput = ref(false);
+const isSubmittingPost = ref(false);
+const uploadProgress = ref(0);
 
 // UI state
 const activeTab = ref('posts'); // 'posts', 'users', 'comments' or 'crud'
@@ -325,8 +329,73 @@ function removeTag(tag: Tag) {
   }
 }
 
+function uploadErrorMessage(request: XMLHttpRequest): string {
+  const responseText = request.responseText.trim();
+
+  if (responseText) {
+    try {
+      const data = JSON.parse(responseText) as { message?: unknown; error?: unknown };
+      const message = typeof data.message === 'string' ? data.message : data.error;
+      if (typeof message === 'string' && message.trim()) return message;
+    } catch {
+      // Reverse proxies such as nginx may return an HTML error page instead of JSON.
+    }
+  }
+
+  if (request.status === 413) {
+    return 'The upload is too large. Choose smaller attachments or ask an administrator to increase the upload limit.';
+  }
+  if (request.status === 502 || request.status === 503 || request.status === 504) {
+    return 'The server is temporarily unavailable. Please try again shortly.';
+  }
+
+  const contentType = request.getResponseHeader('Content-Type') ?? '';
+  const isHtml = contentType.includes('text/html') || /^\s*(?:<!doctype\s+html|<html)/i.test(responseText);
+  if (responseText && !isHtml) return responseText;
+
+  const status = [request.status, request.statusText].filter(Boolean).join(' ');
+  return status ? `Failed to submit post (HTTP ${status}).` : 'Failed to reach the server. Check your connection and try again.';
+}
+
+function uploadPost(url: string, method: 'POST' | 'PUT', formData: FormData): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(method, url);
+    request.withCredentials = true;
+
+    request.upload.addEventListener('progress', event => {
+      if (event.lengthComputable) {
+        uploadProgress.value = Math.round((event.loaded / event.total) * 100);
+      }
+    });
+    request.upload.addEventListener('load', () => {
+      uploadProgress.value = 100;
+    });
+    request.addEventListener('load', () => {
+      if (request.status >= 200 && request.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(uploadErrorMessage(request)));
+      }
+    });
+    request.addEventListener('error', () => {
+      reject(new Error('Failed to reach the server. Check your connection and try again.'));
+    });
+    request.addEventListener('abort', () => {
+      reject(new Error('The upload was cancelled.'));
+    });
+    request.send(formData);
+  });
+}
+
 async function submitPost(event: Event) {
   event.preventDefault();
+
+  if (isSubmittingPost.value) return;
+
+  error.value = null;
+  isSubmittingPost.value = true;
+  uploadProgress.value = 0;
 
   const formData = new FormData();
   formData.append('title', title.value);
@@ -360,25 +429,10 @@ async function submitPost(event: Event) {
   }
 
   try {
-    let response;
-
     if (formMode.value === 'create') {
-      response = await fetch(`/api/posts`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
-      });
+      await uploadPost('/api/posts', 'POST', formData);
     } else {
-      response = await fetch(`/api/posts/${currentPostId.value}`, {
-        method: 'PUT',
-        credentials: 'include',
-        body: formData
-      });
-    }
-
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.message || `Failed to submit post: ${response.statusText}`);
+      await uploadPost(`/api/posts/${currentPostId.value}`, 'PUT', formData);
     }
 
     await Promise.all([fetchPosts(), fetchTags()]);
@@ -397,6 +451,8 @@ async function submitPost(event: Event) {
     } else {
       error.value = 'An unknown error occurred';
     }
+  } finally {
+    isSubmittingPost.value = false;
   }
 }
 
@@ -440,6 +496,27 @@ async function deletePost(id: number) {
     } else {
       error.value = 'An unknown error occurred';
     }
+  }
+}
+
+async function togglePinned(post: Post) {
+  if (!isAdmin()) return;
+
+  try {
+    const response = await fetch(`/api/posts/${post.id}/pin`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_pinned: !post.is_pinned }),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.message || 'Failed to update pinned post');
+    }
+    await fetchPosts();
+  } catch (err) {
+    console.error('Error updating pinned post:', err);
+    error.value = err instanceof Error ? err.message : 'An unknown error occurred';
   }
 }
 
@@ -569,6 +646,11 @@ function toggleNewCategoryInput() {
           Site Settings
         </button>
 
+        <button v-if="isAdmin()" @click="activeTab = 'destination'" :class="{ active: activeTab === 'destination' }"
+          class="tab-button">
+          Destination
+        </button>
+
         <!-- Database Studio is separately feature-flagged and admin-only -->
         <button v-if="isAdmin() && studioEnabled" @click="activeTab = 'studio'" :class="{ active: activeTab === 'studio' }"
           class="tab-button">
@@ -667,25 +749,38 @@ function toggleNewCategoryInput() {
           </div>
 
           <div class="form-actions">
-            <button type="submit" class="link-button primary">
-              {{ formMode === 'create' ? 'Create Post' : 'Update Post' }}
+            <button type="submit" class="link-button primary" :disabled="isSubmittingPost">
+              {{ isSubmittingPost ? 'Uploading…' : (formMode === 'create' ? 'Create Post' : 'Update Post') }}
             </button>
-            <button type="button" @click="resetForm" class="link-button secondary">Cancel</button>
+            <button type="button" @click="resetForm" class="link-button secondary" :disabled="isSubmittingPost">Cancel</button>
+          </div>
+
+          <div v-if="isSubmittingPost" class="upload-status" role="status" aria-live="polite">
+            <div class="upload-status-label">
+              <span>{{ uploadProgress < 100 ? 'Uploading attachments' : 'Processing post' }}</span>
+              <span>{{ uploadProgress }}%</span>
+            </div>
+            <progress :value="uploadProgress" max="100" :aria-label="`Upload progress: ${uploadProgress}%`">
+              {{ uploadProgress }}%
+            </progress>
           </div>
         </form>
 
         <div class="post-lists">
           <div class="posts-list">
-            <h3>Your Posts</h3>
+            <h3>{{ isAdmin() ? 'All Posts' : 'Your Posts' }}</h3>
 
-            <div v-if="posts.length === 0" class="no-posts">
+            <div v-if="(isAdmin() ? posts : posts.filter(p => p.author === currentUser?.username)).length === 0" class="no-posts">
               No posts yet. Create one using the form above.
             </div>
 
             <div v-else class="post-cards">
-              <div v-for="post in posts.filter(p => p.author === currentUser?.username)" :key="post.id"
+              <div v-for="post in (isAdmin() ? posts : posts.filter(p => p.author === currentUser?.username))" :key="post.id"
                 class="post-card">
-                <h4 class="post-title">{{ post.title }}</h4>
+                <h4 class="post-title">
+                  <span v-if="post.is_pinned" class="pin-badge">Pinned</span>
+                  {{ post.title }}
+                </h4>
                 <div class="post-meta">
                   <p class="post-date">{{ new Date(post.custom_date || post.created_at).toLocaleDateString('de-AT', {
                     year: 'numeric',
@@ -693,19 +788,23 @@ function toggleNewCategoryInput() {
                     day: 'numeric'
                     }) }}</p>
                   <p class="post-category" v-if="post.category_name">{{ post.category_name }}</p>
+                  <p class="post-author" v-if="isAdmin()">{{ post.author }}</p>
                 </div>
                 <div class="post-tags">
                   <span v-for="tag in post.tags" :key="tag.id" class="post-tag">{{ tag.name }}</span>
                 </div>
                 <div class="post-actions">
                   <a :href="`/post/${post.id}`" target="_blank" class="link-button small">View</a>
+                  <button v-if="isAdmin()" type="button" @click="togglePinned(post)" class="link-button accent small">
+                    {{ post.is_pinned ? 'Unpin' : 'Pin' }}
+                  </button>
                   <button @click="editPost(post)" class="link-button primary small">Edit</button>
                   <button @click="deletePost(post.id)" class="link-button danger small">Delete</button>
                 </div>
               </div>
             </div>
           </div>
-          <div class="posts-list" v-if="isModerator()">
+          <div class="posts-list" v-if="isModerator() && !isAdmin()">
             <h3>Other's Posts</h3>
 
             <div v-if="posts.filter(p => p.author !== currentUser?.username).length === 0" class="no-posts">
@@ -715,7 +814,10 @@ function toggleNewCategoryInput() {
             <div v-else class="post-cards">
               <div v-for="post in posts.filter(p => p.author !== currentUser?.username)" :key="post.id"
                 class="post-card">
-                <h4 class="post-title">{{ post.title }}</h4>
+                <h4 class="post-title">
+                  <span v-if="post.is_pinned" class="pin-badge">Pinned</span>
+                  {{ post.title }}
+                </h4>
                 <div class="post-meta">
                   <p class="post-date">{{ new Date(post.custom_date || post.created_at).toLocaleDateString('de-AT', {
                     year: 'numeric',
@@ -755,6 +857,10 @@ function toggleNewCategoryInput() {
         <SiteSettingsManagement />
       </div>
 
+      <div v-else-if="activeTab === 'destination'" class="tab-content destination-settings-tab">
+        <DestinationSettingsManagement />
+      </div>
+
       <div v-else-if="activeTab === 'studio'" class="tab-content studio-tab">
         <PrismaStudio />
       </div>
@@ -778,6 +884,20 @@ function toggleNewCategoryInput() {
   &>* {
     height: 100%;
   }
+}
+
+.pin-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5700;
+  font-family: var(--body-font-family);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 
 .admin-title {
@@ -1070,6 +1190,30 @@ function toggleNewCategoryInput() {
   display: flex;
   gap: 10px;
   margin-top: 20px;
+}
+
+.form-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.upload-status {
+  margin-top: 14px;
+}
+
+.upload-status-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #495057;
+  font-size: 13px;
+}
+
+.upload-status progress {
+  display: block;
+  width: 100%;
+  height: 12px;
+  accent-color: #27ae60;
 }
 
 .posts-list {
