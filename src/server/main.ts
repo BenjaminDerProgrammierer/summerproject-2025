@@ -63,6 +63,7 @@ async function startServer(): Promise<Server> {
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https://picsum.photos', 'https://fastly.picsum.photos'],
         connectSrc: ["'self'"],
+        frameSrc: ["'self'", 'https:'],
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         frameAncestors: ["'none'"],

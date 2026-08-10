@@ -674,7 +674,7 @@ function toggleNewCategoryInput() {
           <div class="form-group">
             <label for="content">Content:</label>
             <textarea id="content" v-model="content" rows="10" required></textarea>
-            <small>Supports Markdown formatting</small>
+            <small>Supports Markdown and safe HTML, including iframe embeds</small>
           </div>
 
           <div class="form-group">

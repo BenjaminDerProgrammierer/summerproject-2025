@@ -337,6 +337,11 @@ watch(() => renderedMarkdown.value, processCalloutPlaceholders);
   border-radius: 5px;
 }
 
+.markdown-renderer iframe {
+  max-width: 100%;
+  border: 0;
+}
+
 .markdown-renderer hr {
   height: 0.15em;
   border: 0;
