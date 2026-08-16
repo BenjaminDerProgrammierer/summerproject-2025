@@ -8,6 +8,7 @@ import SiteSettingsManagement from '../components/SiteSettingsManagement.vue';
 import DestinationSettingsManagement from '../components/DestinationSettingsManagement.vue';
 import Logo from '../components/Logo.vue';
 import { loginRoute } from '../auth-navigation';
+import { extractPastedPost } from '../utils/pasted-post';
 
 const PrismaStudio = defineAsyncComponent(() => import('../components/PrismaStudio.vue'));
 
@@ -248,6 +249,30 @@ function handleFileChange(event: Event) {
   if (target.files) {
     selectedFiles.value = Array.from(target.files);
   }
+}
+
+function handleContentPaste(event: ClipboardEvent) {
+  const pastedPost = extractPastedPost(
+    event.clipboardData?.getData('text/plain') ?? '',
+    event.clipboardData?.getData('text/html') ?? '',
+  );
+  if (!pastedPost) return;
+
+  event.preventDefault();
+  const textarea = event.currentTarget as HTMLTextAreaElement;
+  const selectionStart = textarea.selectionStart;
+  const selectionEnd = textarea.selectionEnd;
+
+  title.value = pastedPost.title;
+  content.value =
+    content.value.slice(0, selectionStart)
+    + pastedPost.content
+    + content.value.slice(selectionEnd);
+
+  requestAnimationFrame(() => {
+    const cursorPosition = selectionStart + pastedPost.content.length;
+    textarea.setSelectionRange(cursorPosition, cursorPosition);
+  });
 }
 
 function resetForm() {
@@ -673,7 +698,7 @@ function toggleNewCategoryInput() {
 
           <div class="form-group">
             <label for="content">Content:</label>
-            <textarea id="content" v-model="content" rows="10" required></textarea>
+            <textarea id="content" v-model="content" rows="10" required @paste="handleContentPaste"></textarea>
             <small>Supports Markdown and safe HTML, including iframe embeds</small>
           </div>
 
