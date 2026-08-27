@@ -136,7 +136,15 @@ router.post('/login', loginLimiter, async (req, res) => {
     );
     return res.json({
       token,
-      user: { id: user.id, username: user.username, email: user.email, emailNotifications: user.emailNotifications, role: user.role.name },
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        emailNotifications: user.emailNotifications,
+        commentNotifications: user.commentNotifications,
+        replyNotifications: user.replyNotifications,
+        role: user.role.name,
+      },
     });
   } catch (error) {
     console.error('Login error:', getErrorMessage(error));
@@ -155,10 +163,26 @@ router.get('/me', auth, async (req, res) => {
     if (!userId) return res.status(401).json({ message: 'Authentication required' });
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, email: true, emailNotifications: true, role: { select: { name: true } } },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        emailNotifications: true,
+        commentNotifications: true,
+        replyNotifications: true,
+        role: { select: { name: true } },
+      },
     });
     if (!user?.role) return res.status(401).json({ message: 'Authentication required' });
-    return res.json({ id: user.id, username: user.username, email: user.email, emailNotifications: user.emailNotifications, role: user.role.name });
+    return res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      emailNotifications: user.emailNotifications,
+      commentNotifications: user.commentNotifications,
+      replyNotifications: user.replyNotifications,
+      role: user.role.name,
+    });
   } catch (error) {
     console.error('Error getting user profile:', getErrorMessage(error));
     return res.status(500).json({ message: 'Server error' });
@@ -167,7 +191,7 @@ router.get('/me', auth, async (req, res) => {
 
 /**
  * @route PUT /api/auth/me/notifications
- * @desc Update the authenticated user's email notification preference.
+ * @desc Update the authenticated user's email notification preferences.
  * @access Private
  */
 router.put('/me/notifications', auth, async (req, res) => {
@@ -179,8 +203,13 @@ router.put('/me/notifications', auth, async (req, res) => {
   try {
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { emailNotifications: input.emailNotifications, updatedAt: new Date() },
-      select: { emailNotifications: true },
+      data: {
+        emailNotifications: input.emailNotifications,
+        commentNotifications: input.commentNotifications,
+        replyNotifications: input.replyNotifications,
+        updatedAt: new Date(),
+      },
+      select: { emailNotifications: true, commentNotifications: true, replyNotifications: true },
     });
     return res.json(user);
   } catch (error) {

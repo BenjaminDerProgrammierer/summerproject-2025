@@ -3,6 +3,7 @@ import { commentBodySchema, idParamsSchema, paginationQuerySchema, postIdParamsS
 import { prisma } from '../db/prisma.js';
 import { auth, checkRole, getUserId, getUserRole } from '../middleware/auth.js';
 import { checkSiteAccess } from '../middleware/siteAccess.js';
+import { notifyAboutComment } from '../utils/comment-notifications.js';
 import { serializeComment } from '../utils/serializers.js';
 import { parseInput } from '../utils/validation.js';
 
@@ -65,6 +66,9 @@ router.post('/', auth, async (req, res) => {
     });
     if (outcome === 'missing-post') return res.status(404).json({ message: 'Post not found' });
     if (outcome === 'missing-parent') return res.status(404).json({ message: 'Parent comment not found' });
+    await notifyAboutComment(outcome).catch(error => {
+      console.error('Error sending comment notifications:', error);
+    });
     return res.status(201).json(serializeComment(outcome));
   } catch (error) {
     console.error('Error creating comment:', error);

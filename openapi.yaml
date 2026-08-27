@@ -185,7 +185,7 @@ paths:
       tags:
         - auth
       summary: Update email notification preferences
-      description: Enable or disable new-post email notifications for the current user
+      description: Enable or disable new-post, new-comment, and reply email notifications for the current user
       operationId: updateNotificationPreferences
       security:
         - bearerAuth: []
@@ -197,8 +197,14 @@ paths:
               type: object
               required:
                 - emailNotifications
+                - commentNotifications
+                - replyNotifications
               properties:
                 emailNotifications:
+                  type: boolean
+                commentNotifications:
+                  type: boolean
+                replyNotifications:
                   type: boolean
       responses:
         '200':
@@ -209,6 +215,10 @@ paths:
                 type: object
                 properties:
                   emailNotifications:
+                    type: boolean
+                  commentNotifications:
+                    type: boolean
+                  replyNotifications:
                     type: boolean
         '400':
           description: Invalid preference
@@ -2445,6 +2455,12 @@ components:
         emailNotifications:
           type: boolean
           description: Whether new-post emails are enabled
+        commentNotifications:
+          type: boolean
+          description: Whether new-comment emails are enabled for writers, moderators, and admins
+        replyNotifications:
+          type: boolean
+          description: Whether emails for replies to the user's comments are enabled
     
     Post:
       type: object

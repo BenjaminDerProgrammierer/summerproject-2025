@@ -8,6 +8,8 @@ interface UserProfile {
   username: string;
   email: string;
   emailNotifications: boolean;
+  commentNotifications: boolean;
+  replyNotifications: boolean;
 }
 
 const router = useRouter();
@@ -34,7 +36,9 @@ onMounted(async () => {
   }
 });
 
-async function updateNotifications(): Promise<void> {
+type NotificationPreference = 'emailNotifications' | 'commentNotifications' | 'replyNotifications';
+
+async function updateNotifications(changedPreference: NotificationPreference): Promise<void> {
   if (!profile.value || saving.value) return;
   saving.value = true;
   message.value = '';
@@ -44,12 +48,16 @@ async function updateNotifications(): Promise<void> {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emailNotifications: profile.value.emailNotifications }),
+      body: JSON.stringify({
+        emailNotifications: profile.value.emailNotifications,
+        commentNotifications: profile.value.commentNotifications,
+        replyNotifications: profile.value.replyNotifications,
+      }),
     });
     if (!response.ok) throw new Error('Could not save your notification preference');
     message.value = 'Notification preference saved.';
   } catch (caught) {
-    profile.value.emailNotifications = !profile.value.emailNotifications;
+    profile.value[changedPreference] = !profile.value[changedPreference];
     error.value = caught instanceof Error ? caught.message : 'Could not save your preference';
   } finally {
     saving.value = false;
@@ -67,7 +75,7 @@ async function updateNotifications(): Promise<void> {
     <section class="account-card">
       <div class="eyebrow">Your account</div>
       <h1>Stay in the loop</h1>
-      <p class="intro">Choose whether WEBonTour should email you whenever a new travel story goes online.</p>
+      <p class="intro">Choose which WEBonTour activity should reach your inbox.</p>
 
       <p v-if="loading" class="status">Loading your preferences…</p>
       <p v-else-if="error && !profile" class="notice error">{{ error }}</p>
@@ -84,7 +92,29 @@ async function updateNotifications(): Promise<void> {
             <small>Receive a styled email with a preview and link to every new post.</small>
           </span>
           <span class="switch">
-            <input v-model="profile.emailNotifications" type="checkbox" :disabled="saving" @change="updateNotifications">
+            <input v-model="profile.emailNotifications" type="checkbox" :disabled="saving" @change="updateNotifications('emailNotifications')">
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="preference" :class="{ disabled: saving }">
+          <span>
+            <strong>New comment notifications</strong>
+            <small>Writers, moderators, and admins can receive an email when a new top-level comment is posted.</small>
+          </span>
+          <span class="switch">
+            <input v-model="profile.commentNotifications" type="checkbox" :disabled="saving" @change="updateNotifications('commentNotifications')">
+            <span class="slider"></span>
+          </span>
+        </label>
+
+        <label class="preference" :class="{ disabled: saving }">
+          <span>
+            <strong>Reply notifications</strong>
+            <small>Receive an email when another user replies to one of your comments.</small>
+          </span>
+          <span class="switch">
+            <input v-model="profile.replyNotifications" type="checkbox" :disabled="saving" @change="updateNotifications('replyNotifications')">
             <span class="slider"></span>
           </span>
         </label>
@@ -170,6 +200,8 @@ h1 {
   border-radius: 14px;
   cursor: pointer;
 }
+
+.preference + .preference { margin-top: 12px; }
 
 .preference > span:first-child {
   display: flex;

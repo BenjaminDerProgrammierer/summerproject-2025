@@ -145,21 +145,23 @@ model Tag {
 }
 
 model User {
-  id           Int           @id @default(autoincrement())
-  username     String        @unique @db.VarChar(50)
-  password     String        @db.VarChar(100)
-  authVersion  Int           @default(0) @map("auth_version")
-  email        String        @unique @db.VarChar(100)
-  roleId       Int?          @map("role_id")
-  createdAt    DateTime?     @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime?     @default(now()) @map("updated_at") @db.Timestamp(6)
-  signupNote   String?       @map("signup_note")
-  emailNotifications Boolean @default(false) @map("email_notifications")
-  role         Role?         @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  comments     Comment[]
-  posts        Post[]
-  signupKeys   SignupKey[]
-  siteSettings SiteSetting[]
+  id                   Int           @id @default(autoincrement())
+  username             String        @unique @db.VarChar(50)
+  password             String        @db.VarChar(100)
+  authVersion          Int           @default(0) @map("auth_version")
+  email                String        @unique @db.VarChar(100)
+  roleId               Int?          @map("role_id")
+  createdAt            DateTime?     @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt            DateTime?     @default(now()) @map("updated_at") @db.Timestamp(6)
+  signupNote           String?       @map("signup_note")
+  emailNotifications   Boolean       @default(true) @map("email_notifications")
+  commentNotifications Boolean       @default(true) @map("comment_notifications")
+  replyNotifications   Boolean       @default(true) @map("reply_notifications")
+  role                 Role?         @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  comments             Comment[]
+  posts                Post[]
+  signupKeys           SignupKey[]
+  siteSettings         SiteSetting[]
 
   @@map("users")
 }

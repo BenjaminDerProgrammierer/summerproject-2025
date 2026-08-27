@@ -35,6 +35,8 @@ export const updatePasswordSchema = z.object({
 
 export const notificationPreferencesSchema = z.object({
   emailNotifications: z.boolean(),
+  commentNotifications: z.boolean(),
+  replyNotifications: z.boolean(),
 });
 
 export const categorySchema = z.object({
