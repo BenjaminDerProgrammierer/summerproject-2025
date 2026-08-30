@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref, onMounted } from 'vue';
+import { computed, defineAsyncComponent, ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import UserManagement from '../components/UserManagement.vue';
 import CommentsManagement from '../components/CommentsManagement.vue';
@@ -16,6 +16,11 @@ interface Attachment {
   id: number;
   filename: string;
   post_id: number;
+}
+
+interface UploadedAttachment {
+  id: number;
+  filename: string;
 }
 
 interface Tag {
@@ -79,7 +84,11 @@ const newTag = ref('');
 const newCategory = ref('');
 const showNewCategoryInput = ref(false);
 const isSubmittingPost = ref(false);
-const uploadProgress = ref(0);
+const uploadProgress = ref(new Map<string, number>());
+const allAttachmentsUploaded = computed(() =>
+  selectedFiles.value.length === 0
+  || selectedFiles.value.every(file => uploadProgress.value.get(file.name) === 100),
+);
 
 // UI state
 const activeTab = ref('posts'); // 'posts', 'users', 'comments' or 'crud'
@@ -382,23 +391,35 @@ function uploadErrorMessage(request: XMLHttpRequest): string {
   return status ? `Failed to submit post (HTTP ${status}).` : 'Failed to reach the server. Check your connection and try again.';
 }
 
-function uploadPost(url: string, method: 'POST' | 'PUT', formData: FormData): Promise<void> {
+function uploadAttachment(file: File): Promise<UploadedAttachment> {
   return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('attachment', file);
+
     const request = new XMLHttpRequest();
-    request.open(method, url);
+    request.open('POST', '/api/attachments');
     request.withCredentials = true;
+    uploadProgress.value.set(file.name, 0);
 
     request.upload.addEventListener('progress', event => {
       if (event.lengthComputable) {
-        uploadProgress.value = Math.round((event.loaded / event.total) * 100);
+        uploadProgress.value.set(file.name, Math.round((event.loaded / event.total) * 100));
       }
     });
     request.upload.addEventListener('load', () => {
-      uploadProgress.value = 100;
+      uploadProgress.value.set(file.name, 100);
     });
     request.addEventListener('load', () => {
       if (request.status >= 200 && request.status < 300) {
-        resolve();
+        try {
+          const attachment = JSON.parse(request.responseText) as UploadedAttachment;
+          if (!Number.isInteger(attachment.id) || typeof attachment.filename !== 'string') {
+            throw new Error('Invalid attachment response');
+          }
+          resolve(attachment);
+        } catch {
+          reject(new Error('The server returned an invalid attachment response.'));
+        }
       } else {
         reject(new Error(uploadErrorMessage(request)));
       }
@@ -413,6 +434,27 @@ function uploadPost(url: string, method: 'POST' | 'PUT', formData: FormData): Pr
   });
 }
 
+async function postRequestError(response: Response): Promise<string> {
+  const responseText = await response.text();
+  if (responseText) {
+    try {
+      const data = JSON.parse(responseText) as { message?: unknown; error?: unknown };
+      const message = typeof data.message === 'string' ? data.message : data.error;
+      if (typeof message === 'string' && message.trim()) return message;
+    } catch {
+      // Reverse proxies may return an HTML error page instead of JSON.
+    }
+  }
+  return `Failed to submit post (HTTP ${response.status} ${response.statusText}).`;
+}
+
+async function deleteOrphanAttachments(uploaded: UploadedAttachment[]): Promise<void> {
+  await Promise.allSettled(uploaded.map(attachment => fetch(`/api/attachments/${attachment.id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })));
+}
+
 async function submitPost(event: Event) {
   event.preventDefault();
 
@@ -420,44 +462,29 @@ async function submitPost(event: Event) {
 
   error.value = null;
   isSubmittingPost.value = true;
-  uploadProgress.value = 0;
-
-  const formData = new FormData();
-  formData.append('title', title.value);
-  formData.append('content', content.value);
-
-  // Append custom date if provided
-  if (customDate.value) {
-    formData.append('custom_date', customDate.value);
-  }
-
-  // Append category ID if selected
-  if (selectedCategoryId.value) {
-    formData.append('category_id', selectedCategoryId.value.toString());
-  }
-
-  // Append files
-  for (const file of selectedFiles.value) {
-    formData.append('attachments', file);
-  }
-
-  // Append tags - use tag names or IDs
-  for (const tag of selectedTags.value) {
-    formData.append('tags', tag.name);
-  }
-
-  // For edit mode, include attachments to remove
-  if (formMode.value === 'edit' && attachmentsToRemove.value.length > 0) {
-    for (const attachment of attachmentsToRemove.value) {
-      formData.append('removeAttachments', attachment.id.toString());
-    }
-  }
+  uploadProgress.value = new Map(selectedFiles.value.map(file => [file.name, 0]));
+  const uploadPromises = selectedFiles.value.map(uploadAttachment);
+  let uploaded: UploadedAttachment[] = [];
 
   try {
-    if (formMode.value === 'create') {
-      await uploadPost('/api/posts', 'POST', formData);
-    } else {
-      await uploadPost(`/api/posts/${currentPostId.value}`, 'PUT', formData);
+    uploaded = await Promise.all(uploadPromises);
+    const isCreate = formMode.value === 'create';
+    const response = await fetch(isCreate ? '/api/posts' : `/api/posts/${currentPostId.value}`, {
+      method: isCreate ? 'POST' : 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: title.value,
+        content: content.value,
+        custom_date: customDate.value || null,
+        category_id: selectedCategoryId.value,
+        tags: selectedTags.value.map(tag => tag.name),
+        removeAttachments: isCreate ? [] : attachmentsToRemove.value.map(attachment => attachment.id),
+        attachmentIds: uploaded.map(attachment => attachment.id),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await postRequestError(response));
     }
 
     await Promise.all([fetchPosts(), fetchTags()]);
@@ -470,6 +497,11 @@ async function submitPost(event: Event) {
     
     resetForm();
   } catch (err) {
+    if (uploaded.length === 0 && uploadPromises.length > 0) {
+      const uploadResults = await Promise.allSettled(uploadPromises);
+      uploaded = uploadResults.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    }
+    if (uploaded.length > 0) await deleteOrphanAttachments(uploaded);
     console.error('Error submitting post:', err);
     if (err instanceof Error) {
       error.value = err.message;
@@ -782,12 +814,18 @@ function toggleNewCategoryInput() {
 
           <div v-if="isSubmittingPost" class="upload-status" role="status" aria-live="polite">
             <div class="upload-status-label">
-              <span>{{ uploadProgress < 100 ? 'Uploading attachments' : 'Processing post' }}</span>
-              <span>{{ uploadProgress }}%</span>
+              <span>{{ allAttachmentsUploaded ? 'Processing post' : 'Uploading attachments' }}</span>
             </div>
-            <progress :value="uploadProgress" max="100" :aria-label="`Upload progress: ${uploadProgress}%`">
-              {{ uploadProgress }}%
-            </progress>
+            <div v-for="file in selectedFiles" :key="`${file.name}-${file.size}-${file.lastModified}`" class="attachment-progress">
+              <div class="upload-status-label">
+                <span>{{ file.name }}</span>
+                <span>{{ uploadProgress.get(file.name) ?? 0 }}%</span>
+              </div>
+              <progress :value="uploadProgress.get(file.name) ?? 0" max="100"
+                :aria-label="`Upload progress for ${file.name}: ${uploadProgress.get(file.name) ?? 0}%`">
+                {{ uploadProgress.get(file.name) ?? 0 }}%
+              </progress>
+            </div>
           </div>
         </form>
 
@@ -1224,6 +1262,14 @@ function toggleNewCategoryInput() {
 
 .upload-status {
   margin-top: 14px;
+}
+
+.attachment-progress {
+  margin-top: 8px;
+}
+
+.attachment-progress .upload-status-label span:first-child {
+  overflow-wrap: anywhere;
 }
 
 .upload-status-label {
