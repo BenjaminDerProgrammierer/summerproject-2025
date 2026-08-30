@@ -20,6 +20,7 @@ import { requireSameOriginForSession } from './middleware/sameOrigin.js';
 import { checkSiteAccess } from './middleware/siteAccess.js';
 import { generateOpenApiDocument } from './openapi.js';
 import adminRoutes from './routes/admin.js';
+import attachmentsRoutes from './routes/attachments.js';
 import authRoutes from './routes/auth.js';
 import commentsRoutes from './routes/comments.js';
 import postsRoutes from './routes/posts.js';
@@ -132,6 +133,7 @@ async function startServer(): Promise<Server> {
   }
 
   app.use('/api/auth', authRoutes);
+  app.use('/api/attachments', attachmentsRoutes);
   app.use('/api/posts', postsRoutes);
   app.use('/api/setup', setupRoutes);
   app.use('/api/admin', adminRoutes);

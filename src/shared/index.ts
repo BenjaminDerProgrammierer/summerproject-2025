@@ -64,6 +64,7 @@ export const postBodySchema = z.object({
     z.iso.datetime({ offset: true }).or(z.iso.datetime({ local: true })).transform(value => new Date(value)).nullable(),
   ),
   removeAttachments: idArray,
+  attachmentIds: idArray,
 });
 
 export const postPinSchema = z.object({

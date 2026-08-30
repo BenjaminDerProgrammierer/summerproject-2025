@@ -1,9 +1,5 @@
 import express from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import multer from 'multer';
 import { categorySchema, idParamsSchema, postBodySchema, postPinSchema, postsQuerySchema } from '../../shared/index.js';
-import { attachmentsDir } from '../config/paths.js';
 import { prisma } from '../db/prisma.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { auth, getUserId, getUserRole, isAdmin, isWriterOrModerator } from '../middleware/auth.js';
@@ -11,33 +7,10 @@ import { checkSiteAccess } from '../middleware/siteAccess.js';
 import { getErrorCode } from '../utils/errors.js';
 import { notifySubscribersOfNewPost } from '../utils/post-notifications.js';
 import { serializePost } from '../utils/serializers.js';
+import { unlinkStoredFile } from '../utils/stored-files.js';
 import { parseInput } from '../utils/validation.js';
 
 const router = express.Router();
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => {
-    fs.mkdirSync(attachmentsDir, { recursive: true });
-    callback(null, attachmentsDir);
-  },
-  filename: (_req, file, callback) => {
-    const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    callback(null, `${file.fieldname}-${suffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, callback) => {
-    const allowed = /jpeg|jpg|png|gif|webp|pdf/;
-    if (allowed.test(path.extname(file.originalname).toLowerCase()) && allowed.test(file.mimetype)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Error: Only images and PDFs are allowed'));
-    }
-  },
-});
 
 const postInclude = {
   author: { select: { id: true, username: true } },
@@ -52,11 +25,6 @@ function serializeTag(tag: { id: number; name: string; createdAt: Date | null })
 
 function serializeCategory(category: { id: number; name: string; description: string | null; createdAt: Date | null }) {
   return { id: category.id, name: category.name, description: category.description, created_at: category.createdAt };
-}
-
-function unlinkStoredFile(filename: string): void {
-  const filePath = path.join(attachmentsDir, filename);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }
 
 async function findDateSortedPostIds(
@@ -256,21 +224,14 @@ router.get('/', checkSiteAccess, async (req, res) => {
 
 /**
  * @route POST /api/posts
- * @desc Create a post with category, tags, and attachment metadata.
+ * @desc Create a post with category, tags, and references to pre-uploaded attachments.
  * @access Writer, Moderator, or Admin
  */
-router.post('/', auth, isWriterOrModerator, upload.array('attachments', 5), async (req, res) => {
+router.post('/', auth, isWriterOrModerator, async (req, res) => {
   const input = parseInput(postBodySchema, req.body, res);
-  const files = Array.isArray(req.files) ? req.files : [];
-  if (!input) {
-    files.forEach(file => unlinkStoredFile(file.filename));
-    return;
-  }
+  if (!input) return;
   const userId = getUserId(req);
-  if (!userId) {
-    files.forEach(file => unlinkStoredFile(file.filename));
-    return res.status(401).json({ message: 'Authentication required' });
-  }
+  if (!userId) return res.status(401).json({ message: 'Authentication required' });
   try {
     const post = await prisma.post.create({
       data: {
@@ -279,14 +240,6 @@ router.post('/', auth, isWriterOrModerator, upload.array('attachments', 5), asyn
         authorId: userId,
         categoryId: input.category_id,
         customDate: input.custom_date,
-        attachments: {
-          create: files.map(file => ({
-            filename: file.filename,
-            originalFilename: file.originalname,
-            fileSize: file.size,
-            mimeType: file.mimetype,
-          })),
-        },
         tags: {
           create: input.tags.map(name => ({
             tag: { connectOrCreate: { where: { name }, create: { name } } },
@@ -295,15 +248,21 @@ router.post('/', auth, isWriterOrModerator, upload.array('attachments', 5), asyn
       },
       include: postInclude,
     });
-    await notifySubscribersOfNewPost(post).catch(error => {
+    if (input.attachmentIds.length > 0) {
+      await prisma.attachment.updateMany({
+        where: { id: { in: input.attachmentIds }, postId: null },
+        data: { postId: post.id },
+      });
+    }
+    const created = await prisma.post.findUniqueOrThrow({ where: { id: post.id }, include: postInclude });
+    await notifySubscribersOfNewPost(created).catch(error => {
       console.error('Error sending new-post notifications:', error);
     });
     return res.status(201).json({
-      ...serializePost(post),
-      tags: post.tags.map(({ tag }) => tag.name),
+      ...serializePost(created),
+      tags: created.tags.map(({ tag }) => tag.name),
     });
   } catch (error) {
-    files.forEach(file => unlinkStoredFile(file.filename));
     console.error('Error creating post:', error);
     return res.status(500).json({ message: 'Server error' });
   }
@@ -355,26 +314,16 @@ router.patch('/:id/pin', auth, isAdmin, async (req, res) => {
  * @desc Update an authorized post and synchronize tags and attachments.
  * @access Owning Writer, Moderator, or Admin
  */
-router.put('/:id', auth, upload.array('attachments', 5), async (req, res) => {
+router.put('/:id', auth, async (req, res) => {
   const params = parseInput(idParamsSchema, req.params, res);
   const input = parseInput(postBodySchema, req.body, res);
-  const files = Array.isArray(req.files) ? req.files : [];
-  if (!params || !input) {
-    files.forEach(file => unlinkStoredFile(file.filename));
-    return;
-  }
+  if (!params || !input) return;
   try {
     const current = await prisma.post.findUnique({ where: { id: params.id }, select: { authorId: true } });
-    if (!current) {
-      files.forEach(file => unlinkStoredFile(file.filename));
-      return res.status(404).json({ message: 'Post not found' });
-    }
+    if (!current) return res.status(404).json({ message: 'Post not found' });
     const role = getUserRole(req);
     const allowed = role === 'admin' || role === 'moderator' || (role === 'writer' && current.authorId === getUserId(req));
-    if (!allowed) {
-      files.forEach(file => unlinkStoredFile(file.filename));
-      return res.status(403).json({ message: 'Not authorized to edit this post' });
-    }
+    if (!allowed) return res.status(403).json({ message: 'Not authorized to edit this post' });
 
     const removed = await prisma.attachment.findMany({
       where: { id: { in: input.removeAttachments }, postId: params.id },
@@ -391,12 +340,6 @@ router.put('/:id', auth, upload.array('attachments', 5), async (req, res) => {
           updatedAt: new Date(),
           attachments: {
             deleteMany: { id: { in: input.removeAttachments } },
-            create: files.map(file => ({
-              filename: file.filename,
-              originalFilename: file.originalname,
-              fileSize: file.size,
-              mimeType: file.mimetype,
-            })),
           },
           tags: {
             deleteMany: {},
@@ -406,11 +349,16 @@ router.put('/:id', auth, upload.array('attachments', 5), async (req, res) => {
           },
         },
       });
+      if (input.attachmentIds.length > 0) {
+        await transaction.attachment.updateMany({
+          where: { id: { in: input.attachmentIds }, postId: null },
+          data: { postId: params.id },
+        });
+      }
     });
     removed.forEach(attachment => unlinkStoredFile(attachment.filename));
     return res.json({ message: 'Post updated successfully' });
   } catch (error) {
-    files.forEach(file => unlinkStoredFile(file.filename));
     console.error('Error updating post:', error);
     return res.status(500).json({ message: 'Server error' });
   }

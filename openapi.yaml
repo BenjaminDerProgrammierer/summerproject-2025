@@ -14,6 +14,8 @@ servers:
 tags:
   - name: auth
     description: Authentication and user management
+  - name: attachments
+    description: Staged post attachment uploads
   - name: posts
     description: Blog posts, categories, and tags
   - name: setup
@@ -30,6 +32,110 @@ tags:
     description: Site configuration and settings management
 
 paths:
+  /attachments:
+    post:
+      tags:
+        - attachments
+      summary: Upload an attachment
+      description: Upload a single attachment for later association with a post
+      operationId: uploadAttachment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - attachment
+              properties:
+                attachment:
+                  type: string
+                  format: binary
+                  description: Image or PDF attachment, up to 5 MB
+      responses:
+        '201':
+          description: Attachment uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          description: No file supplied or invalid file type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not authorized to upload attachments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /attachments/{id}:
+    delete:
+      tags:
+        - attachments
+      summary: Delete an orphan attachment
+      description: Delete an uploaded attachment that has not been associated with a post
+      operationId: deleteOrphanAttachment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Attachment ID
+      responses:
+        '200':
+          description: Attachment deleted successfully
+        '400':
+          description: Invalid attachment ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Attachment is already linked to a post
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Attachment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /auth/signup:
     post:
       tags:
@@ -674,7 +780,7 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               required:
@@ -694,14 +800,14 @@ paths:
                 tags:
                   type: array
                   items:
-                    type: integer
-                  example: [1, 2, 3]
-                files:
+                    type: string
+                  example: [JavaScript, Travel]
+                attachmentIds:
                   type: array
                   items:
-                    type: string
-                    format: binary
-                  description: Attachments for the post
+                    type: integer
+                  example: [1, 2, 3]
+                  description: IDs returned by POST /attachments
                 custom_date:
                   type: string
                   format: date-time
@@ -789,7 +895,7 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
@@ -805,14 +911,14 @@ paths:
                 tags:
                   type: array
                   items:
-                    type: integer
-                  example: [2, 3, 4]
-                files:
+                    type: string
+                  example: [JavaScript, Travel]
+                attachmentIds:
                   type: array
                   items:
-                    type: string
-                    format: binary
-                  description: New attachments for the post
+                    type: integer
+                  example: [2, 3, 4]
+                  description: IDs returned by POST /attachments
                 removeAttachments:
                   type: array
                   items:
